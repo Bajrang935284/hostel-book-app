@@ -1,5 +1,3 @@
-// src/controllers/activityController.js
-
 import { prisma } from "../config/database.js";
 
 // ============= ACTIVITY / ALL TAB =============
@@ -199,6 +197,7 @@ export const getBorrowedMoney = async (req, res) => {
   }
 };
 
+// --- FIXED FUNCTION BELOW ---
 export const addFeePayment = async (req, res) => {
   try {
     const { studentId } = req.params;
@@ -223,15 +222,25 @@ export const addFeePayment = async (req, res) => {
       });
     }
 
+    // --- FIX: Calculate Billing Cycle ---
+    const actualDate = paidDate ? new Date(paidDate) : new Date();
+    const billingMonth = actualDate.getMonth() + 1; // 1-12
+    const billingYear = actualDate.getFullYear();
+    // ------------------------------------
+
     const feeRecord = await prisma.feeRecord.create({
       data: {
         studentId,
         amount: parseFloat(amount),
-        dueDate: new Date(),
-        paidDate: paidDate ? new Date(paidDate) : new Date(),
+        dueDate: actualDate, // Paid now, so due date effectively met
+        paidDate: actualDate,
         status: "PAID",
         paymentMethod,
         notes,
+        // --- ADDED REQUIRED FIELDS ---
+        billingMonth,
+        billingYear,
+        // -----------------------------
       },
     });
 

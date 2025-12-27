@@ -1,3 +1,353 @@
+// // This is your Prisma schema file,
+// // learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// // Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+// generator client {
+//   provider = "prisma-client-js"
+// }
+
+// datasource db {
+//   provider = "postgresql"
+//   url      = env("DATABASE_URL")
+// }
+
+// model Admin {
+//   id        String   @id @default(uuid())
+//   username  String   @unique
+//   password  String
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+
+//   @@map("admins")
+// }
+
+// model HostelOwner {
+//   id        String   @id @default(uuid())
+//   name      String
+//   phone     String   @unique
+//   password  String
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+
+//   hostels  Hostel[]
+//   students Student[]
+//   staff    Staff[]
+//   expenses          Expense[]
+//   salaryPayments    SalaryPayment[]
+//   studentBorrowings StudentBorrowing[]
+//   feePayments       FeePayment[]
+//   @@map("hostel_owners")
+// }
+
+// model Parent {
+//   id            String   @id @default(uuid())
+//   username      String   @unique
+//   password      String // Hashed password for login
+//   plainPassword String // Plain password - always visible to owner
+//   name          String?
+//   phone         String
+//   email         String?
+//   isFirstLogin  Boolean  @default(true)
+//   studentId     String   @unique
+//   createdAt     DateTime @default(now())
+//   updatedAt     DateTime @updatedAt
+
+//   student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+//   @@map("parents")
+// }
+
+// model Hostel {
+//   id            String   @id @default(uuid())
+//   name          String
+//   ownerName     String
+//   contactNumber String
+//   email         String?
+//   street        String
+//   city          String
+//   state         String
+//   pinCode       String
+//   hostelType    String // Boys / Girls / Co-ed
+//   ownerId       String
+//   createdAt     DateTime @default(now())
+//   updatedAt     DateTime @updatedAt
+
+//   owner    HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+//   students Student[]
+//   staff    Staff[]
+//   expenses          Expense[]
+//   salaryPayments    SalaryPayment[]
+//   studentBorrowings StudentBorrowing[]
+//   feePayments       FeePayment[]
+//   @@map("hostels")
+// }
+
+// model Student {
+//   id              String          @id @default(uuid())
+//   name            String
+//   parentName      String
+//   parentPhone     String
+//   parentEmail     String?
+//   roomNumber      String?
+//   bedNumber       String?
+//   monthlyFee      Float
+//   feeDueDate      Int             @default(1)
+//   notes           String?
+//   ownerId         String
+//   hostelId        String
+//   createdAt       DateTime        @default(now())
+//   updatedAt       DateTime        @updatedAt
+
+//   owner           HostelOwner     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+//   hostel          Hostel          @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+//   parent          Parent?
+//   activities      Activity[]
+//   feeRecords      FeeRecord[]
+//   borrowedMoney   BorrowedMoney[]
+//   permissions     Permission[]
+//   alerts          Alert[]
+//   StudentBorrowing StudentBorrowing[]
+//   FeePayment       FeePayment[]
+
+//   @@map("students")
+// }
+
+// model Staff {
+//   id                   String   @id @default(uuid())
+//   name                 String
+//   phone                String
+//   email                String?
+//   role                 String // Manager, Warden, Cook, Cleaner, Security, Maintenance, Other
+//   salary               Float
+//   joiningDate          DateTime @default(now())
+//   address              String?
+//   idProofType          String? // Aadhar, PAN, Voter ID, etc.
+//   idProofNumber        String?
+//   emergencyContact     String?
+//   emergencyContactName String?
+//   isActive             Boolean  @default(true)
+//   createdAt            DateTime @default(now())
+//   updatedAt            DateTime @updatedAt
+
+//   owner   HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+//   ownerId String
+
+//   hostel   Hostel @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+//   hostelId String
+//    salaryPayments    SalaryPayment[]
+//   @@index([ownerId])
+//   @@index([hostelId])
+//   @@index([phone])
+// }
+
+// model Expense {
+//   id            String   @id @default(uuid())
+//   title         String
+//   amount        Float
+//   category      String   // Electricity, Water, Gas, Internet, etc.
+//   expenseDate   DateTime @default(now())
+//   description   String?
+//   paymentMethod String   @default("Cash") // Cash, Bank Transfer, UPI, Card
+//   createdAt     DateTime @default(now())
+//   updatedAt     DateTime @updatedAt
+
+//   owner         HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+//   ownerId       String
+
+//   hostel        Hostel   @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+//   hostelId      String
+
+//   @@index([ownerId])
+//   @@index([hostelId])
+//   @@index([expenseDate])
+//   @@index([category])
+// }
+
+// model SalaryPayment {
+//   id            String   @id @default(uuid())
+//   amount        Float
+//   paymentDate   DateTime @default(now())
+//   paymentMonth  Int      // 1-12
+//   paymentYear   Int      // 2024, 2025, etc.
+//   paymentMethod String   @default("Cash")
+//   notes         String?
+//   createdAt     DateTime @default(now())
+//   updatedAt     DateTime @updatedAt
+
+//   staff         Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+//   staffId       String
+
+//   owner         HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+//   ownerId       String
+
+//   hostel        Hostel   @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+//   hostelId      String
+
+//   @@unique([staffId, paymentMonth, paymentYear])
+//   @@index([ownerId])
+//   @@index([hostelId])
+//   @@index([paymentMonth, paymentYear])
+// }
+
+// model StudentBorrowing {
+//   id             String    @id @default(uuid())
+//   amount         Float
+//   borrowDate     DateTime  @default(now())
+//   reason         String?
+//   dueDate        DateTime?
+//   repaymentDate  DateTime?
+//   status         String    @default("Pending") // Pending, Repaid, Cancelled
+//   notes          String?
+//   createdAt      DateTime  @default(now())
+//   updatedAt      DateTime  @updatedAt
+
+//   student        Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+//   studentId      String
+
+//   owner          HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+//   ownerId        String
+
+//   hostel         Hostel    @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+//   hostelId       String
+
+//   @@index([ownerId])
+//   @@index([hostelId])
+//   @@index([studentId])
+//   @@index([status])
+// }
+
+// model FeePayment {
+//   id          String   @id @default(uuid())
+//   amount      Float
+//   paymentDate DateTime @default(now())
+//   paymentMonth Int     // 1-12
+//   paymentYear Int
+//   paymentMethod String @default("Cash")
+//   notes       String?
+//   status      String   @default("Completed") // Completed, Pending, Failed
+//   createdAt   DateTime @default(now())
+//   updatedAt   DateTime @updatedAt
+
+//   student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+//   studentId   String
+
+//   owner       HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+//   ownerId     String
+
+//   hostel      Hostel   @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+//   hostelId    String
+
+//   @@index([ownerId])
+//   @@index([hostelId])
+//   @@index([studentId])
+//   @@index([paymentDate])
+// }
+
+// model Activity {
+//   id          String       @id @default(uuid())
+//   studentId   String
+//   type        ActivityType // Payment, Permission, Alert, Health, etc.
+//   title       String
+//   description String?
+//   amount      Float?       // For payment activities
+//   status      String?      // Pending, Approved, Rejected, Completed
+//   metadata    Json?        // Store additional data as JSON
+//   createdAt   DateTime     @default(now())
+//   updatedAt   DateTime     @updatedAt
+
+//   student     Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+//   @@map("activities")
+// }
+
+// enum ActivityType {
+//   PAYMENT
+//   PERMISSION
+//   ALERT
+//   HEALTH
+//   GENERAL
+// }
+
+// model FeeRecord {
+//   id              String    @id @default(uuid())
+//   studentId       String
+//   amount          Float
+//   dueDate         DateTime
+//   paidDate        DateTime?
+//   status          FeeStatus @default(PENDING)
+//   paymentMethod   String?
+//   notes           String?
+//   createdAt       DateTime  @default(now())
+//   updatedAt       DateTime  @updatedAt
+
+//   student         Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+//   @@map("fee_records")
+// }
+
+// enum FeeStatus {
+//   PENDING
+//   PAID
+//   OVERDUE
+//   PARTIAL
+// }
+
+// model BorrowedMoney {
+//   id          String    @id @default(uuid())
+//   studentId   String
+//   amount      Float
+//   reason      String?
+//   dueDate     DateTime?
+//   paidDate    DateTime?
+//   status      String    @default("PENDING") // PENDING, PAID
+//   createdAt   DateTime  @default(now())
+//   updatedAt   DateTime  @updatedAt
+
+//   student     Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+//   @@map("borrowed_money")
+// }
+
+// model Permission {
+//   id            String           @id @default(uuid())
+//   studentId     String
+//   requestText   String
+//   duration      String?          // e.g., "3 hours", "2 days"
+//   reason        String?
+//   status        PermissionStatus @default(PENDING)
+//   parentResponse String?
+//   respondedAt   DateTime?
+//   createdAt     DateTime         @default(now())
+//   updatedAt     DateTime         @updatedAt
+
+//   student       Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+//   @@map("permissions")
+// }
+
+// enum PermissionStatus {
+//   PENDING
+//   APPROVED
+//   REJECTED
+// }
+
+// model Alert {
+//   id          String    @id @default(uuid())
+//   studentId   String
+//   title       String
+//   message     String
+//   alertType   String    // INFO, WARNING, URGENT, HEALTH
+//   isRead      Boolean   @default(false)
+//   createdAt   DateTime  @default(now())
+//   updatedAt   DateTime  @updatedAt
+
+//   student     Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+//   @@map("alerts")
+// }
+
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
@@ -22,7 +372,6 @@ model Admin {
 
   @@map("admins")
 }
-
 model HostelOwner {
   id        String   @id @default(uuid())
   name      String
@@ -31,16 +380,21 @@ model HostelOwner {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  hostels  Hostel[]
-  students Student[]
-  staff    Staff[]
+  // --- Existing Relations ---
+  hostels           Hostel[]
+  students          Student[]
+  staff             Staff[]
   expenses          Expense[]
   salaryPayments    SalaryPayment[]
   studentBorrowings StudentBorrowing[]
   feePayments       FeePayment[]
+
+  // --- ADD THESE TWO LINES TO FIX THE ERROR ---
+  permissions       Permission[]
+  alerts            Alert[]
+
   @@map("hostel_owners")
 }
-
 model Parent {
   id            String   @id @default(uuid())
   username      String   @unique
@@ -74,40 +428,46 @@ model Hostel {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  owner    HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  students Student[]
-  staff    Staff[]
+  owner             HostelOwner        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  students          Student[]
+  staff             Staff[]
   expenses          Expense[]
   salaryPayments    SalaryPayment[]
   studentBorrowings StudentBorrowing[]
   feePayments       FeePayment[]
+
   @@map("hostels")
 }
 
 model Student {
-  id              String          @id @default(uuid())
-  name            String
-  parentName      String
-  parentPhone     String
-  parentEmail     String?
-  roomNumber      String?
-  bedNumber       String?
-  monthlyFee      Float
-  feeDueDate      Int             @default(1)
-  notes           String?
-  ownerId         String
-  hostelId        String
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  id          String  @id @default(uuid())
+  name        String
+  parentName  String
+  parentPhone String
+  parentEmail String?
+  roomNumber  String?
+  bedNumber   String?
+  monthlyFee  Float
 
-  owner           HostelOwner     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  hostel          Hostel          @relation(fields: [hostelId], references: [id], onDelete: Cascade)
-  parent          Parent?
-  activities      Activity[]
-  feeRecords      FeeRecord[]
-  borrowedMoney   BorrowedMoney[]
-  permissions     Permission[]
-  alerts          Alert[]
+  // --- CHANGED HERE ---
+  feeDueDate    Int      @default(1) // The cycle day (e.g., 15th of every month)
+  admissionDate DateTime @default(now()) // Added: To track joining date
+  // --------------------
+
+  notes     String?
+  ownerId   String
+  hostelId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner            HostelOwner        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  hostel           Hostel             @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  parent           Parent?
+  activities       Activity[]
+  feeRecords       FeeRecord[]
+  borrowedMoney    BorrowedMoney[]
+  permissions      Permission[]
+  alerts           Alert[]
   StudentBorrowing StudentBorrowing[]
   FeePayment       FeePayment[]
 
@@ -134,31 +494,31 @@ model Staff {
   owner   HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   ownerId String
 
-  hostel   Hostel @relation(fields: [hostelId], references: [id], onDelete: Cascade)
-  hostelId String
-   salaryPayments    SalaryPayment[]
+  hostel         Hostel          @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  hostelId       String
+  salaryPayments SalaryPayment[]
+
   @@index([ownerId])
   @@index([hostelId])
   @@index([phone])
 }
 
-
 model Expense {
   id            String   @id @default(uuid())
   title         String
   amount        Float
-  category      String   // Electricity, Water, Gas, Internet, etc.
+  category      String // Electricity, Water, Gas, Internet, etc.
   expenseDate   DateTime @default(now())
   description   String?
   paymentMethod String   @default("Cash") // Cash, Bank Transfer, UPI, Card
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-  
-  owner         HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  ownerId       String
-  
-  hostel        Hostel   @relation(fields: [hostelId], references: [id], onDelete: Cascade)
-  hostelId      String
+
+  owner   HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId String
+
+  hostel   Hostel @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  hostelId String
 
   @@index([ownerId])
   @@index([hostelId])
@@ -170,21 +530,21 @@ model SalaryPayment {
   id            String   @id @default(uuid())
   amount        Float
   paymentDate   DateTime @default(now())
-  paymentMonth  Int      // 1-12
-  paymentYear   Int      // 2024, 2025, etc.
+  paymentMonth  Int // 1-12
+  paymentYear   Int // 2024, 2025, etc.
   paymentMethod String   @default("Cash")
   notes         String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-  
-  staff         Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
-  staffId       String
-  
-  owner         HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  ownerId       String
-  
-  hostel        Hostel   @relation(fields: [hostelId], references: [id], onDelete: Cascade)
-  hostelId      String
+
+  staff   Staff  @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  staffId String
+
+  owner   HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId String
+
+  hostel   Hostel @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  hostelId String
 
   @@unique([staffId, paymentMonth, paymentYear])
   @@index([ownerId])
@@ -193,25 +553,25 @@ model SalaryPayment {
 }
 
 model StudentBorrowing {
-  id             String    @id @default(uuid())
-  amount         Float
-  borrowDate     DateTime  @default(now())
-  reason         String?
-  dueDate        DateTime?
-  repaymentDate  DateTime?
-  status         String    @default("Pending") // Pending, Repaid, Cancelled
-  notes          String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  
-  student        Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  studentId      String
-  
-  owner          HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  ownerId        String
-  
-  hostel         Hostel    @relation(fields: [hostelId], references: [id], onDelete: Cascade)
-  hostelId       String
+  id            String    @id @default(uuid())
+  amount        Float
+  borrowDate    DateTime  @default(now())
+  reason        String?
+  dueDate       DateTime?
+  repaymentDate DateTime?
+  status        String    @default("Pending") // Pending, Repaid, Cancelled
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  student   Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  studentId String
+
+  owner   HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId String
+
+  hostel   Hostel @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  hostelId String
 
   @@index([ownerId])
   @@index([hostelId])
@@ -220,25 +580,25 @@ model StudentBorrowing {
 }
 
 model FeePayment {
-  id          String   @id @default(uuid())
-  amount      Float
-  paymentDate DateTime @default(now())
-  paymentMonth Int     // 1-12
-  paymentYear Int
-  paymentMethod String @default("Cash")
-  notes       String?
-  status      String   @default("Completed") // Completed, Pending, Failed
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
-  student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  studentId   String
-  
-  owner       HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  ownerId     String
-  
-  hostel      Hostel   @relation(fields: [hostelId], references: [id], onDelete: Cascade)
-  hostelId    String
+  id            String   @id @default(uuid())
+  amount        Float
+  paymentDate   DateTime @default(now())
+  paymentMonth  Int // 1-12
+  paymentYear   Int
+  paymentMethod String   @default("Cash")
+  notes         String?
+  status        String   @default("Completed") // Completed, Pending, Failed
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  student   Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  studentId String
+
+  owner   HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId String
+
+  hostel   Hostel @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  hostelId String
 
   @@index([ownerId])
   @@index([hostelId])
@@ -246,20 +606,19 @@ model FeePayment {
   @@index([paymentDate])
 }
 
-
 model Activity {
   id          String       @id @default(uuid())
   studentId   String
   type        ActivityType // Payment, Permission, Alert, Health, etc.
   title       String
   description String?
-  amount      Float?       // For payment activities
-  status      String?      // Pending, Approved, Rejected, Completed
-  metadata    Json?        // Store additional data as JSON
+  amount      Float? // For payment activities
+  status      String? // Pending, Approved, Rejected, Completed
+  metadata    Json? // Store additional data as JSON
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  student     Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@map("activities")
 }
@@ -273,19 +632,29 @@ enum ActivityType {
 }
 
 model FeeRecord {
-  id              String    @id @default(uuid())
-  studentId       String
-  amount          Float
-  dueDate         DateTime
-  paidDate        DateTime?
-  status          FeeStatus @default(PENDING)
-  paymentMethod   String?
-  notes           String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id        String @id @default(uuid())
+  studentId String
+  amount    Float
 
-  student         Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  // --- CHANGED HERE ---
+  // This captures the specific cycle (e.g., "November Fee")
+  billingMonth Int // 1-12
+  billingYear  Int // 2024
 
+  // This captures the deadline calculated from Student.feeDueDate
+  dueDate DateTime
+  // --------------------
+
+  paidDate      DateTime?
+  status        FeeStatus @default(PENDING)
+  paymentMethod String?
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, billingMonth, billingYear]) // Prevents duplicate bills for same month
   @@map("fee_records")
 }
 
@@ -297,55 +666,74 @@ enum FeeStatus {
 }
 
 model BorrowedMoney {
-  id          String    @id @default(uuid())
-  studentId   String
-  amount      Float
-  reason      String?
-  dueDate     DateTime?
-  paidDate    DateTime?
-  status      String    @default("PENDING") // PENDING, PAID
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id        String    @id @default(uuid())
+  studentId String
+  amount    Float
+  reason    String?
+  dueDate   DateTime?
+  paidDate  DateTime?
+  status    String    @default("PENDING") // PENDING, PAID
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
-  student     Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@map("borrowed_money")
 }
 
 model Permission {
-  id            String           @id @default(uuid())
-  studentId     String
-  requestText   String
-  duration      String?          // e.g., "3 hours", "2 days"
-  reason        String?
-  status        PermissionStatus @default(PENDING)
-  parentResponse String?
-  respondedAt   DateTime?
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  id          String   @id @default(uuid())
+  studentId   String
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  
+  ownerId     String
+  owner       HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
-  student       Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  type        String   // e.g., "Night Out", "Leave"
+  reason      String?
+  returnDate  DateTime? 
+  status      PermissionStatus @default(APPROVED) 
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@map("permissions")
 }
-
 enum PermissionStatus {
   PENDING
   APPROVED
   REJECTED
 }
-
 model Alert {
-  id          String    @id @default(uuid())
+  id          String   @id @default(uuid())
   studentId   String
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  
+  ownerId     String
+  owner       HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
   title       String
   message     String
-  alertType   String    // INFO, WARNING, URGENT, HEALTH
-  isRead      Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  student     Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  alertType   String   
+  isRead      Boolean  @default(false)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@map("alerts")
+}
+
+model RefreshToken {
+  id         String   @id @default(uuid())
+  tokenHash  String   @unique
+  userId     String
+  userRole   String
+  deviceInfo String?
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime
+  revoked    Boolean  @default(false)
+  replacedBy String?
+
+  @@index([userId])
+  @@map("refresh_tokens")
 }

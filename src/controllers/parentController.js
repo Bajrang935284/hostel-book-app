@@ -1,6 +1,7 @@
 import { prisma } from "../config/database.js";
 import { comparePassword, hashPassword } from "../utils/passwordHelper.js";
 import { generateToken } from "../utils/jwtHelper.js";
+import { generateRefreshToken } from "../utils/refreshTokenHelper.js";
 
 export const parentLogin = async (req, res) => {
   try {
@@ -63,11 +64,18 @@ export const parentLogin = async (req, res) => {
       studentId: parent.studentId,
     });
 
+    // Create refresh token for this session
+    const { rawToken: refreshToken } = await generateRefreshToken(
+      parent.id,
+      "parent"
+    );
+
     res.json({
       success: true,
       message: "Login successful",
       data: {
         token,
+        refreshToken,
         user: {
           id: parent.id,
           username: parent.username,

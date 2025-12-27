@@ -7,5 +7,7 @@ const router = express.Router();
 
 router.post('/login', adminLogin);
 router.get('/profile', authenticate, authorizeRole('admin'), getAdminProfile);
+// router.post('/signup', adminSignup);
+
 
 export default router;

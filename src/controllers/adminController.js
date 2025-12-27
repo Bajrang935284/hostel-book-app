@@ -1,60 +1,67 @@
-import { prisma } from '../config/database.js';
-import { comparePassword } from '../utils/passwordHelper.js';
-import { generateToken } from '../utils/jwtHelper.js';
+import { prisma } from "../config/database.js";
+import { comparePassword } from "../utils/passwordHelper.js";
+import { generateToken } from "../utils/jwtHelper.js";
+import { generateRefreshToken } from "../utils/refreshTokenHelper.js";
 
 export const adminLogin = async (req, res) => {
   try {
     const { username, password } = req.body;
 
     if (!username || !password) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'Username and password are required.' 
+        message: "Username and password are required.",
       });
     }
 
     const admin = await prisma.admin.findUnique({
-      where: { username }
+      where: { username },
     });
 
     if (!admin) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        message: 'Invalid credentials.' 
+        message: "Invalid credentials.",
       });
     }
 
     const isPasswordValid = await comparePassword(password, admin.password);
 
     if (!isPasswordValid) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        message: 'Invalid credentials.' 
+        message: "Invalid credentials.",
       });
     }
 
     const token = generateToken({
       id: admin.id,
-      role: 'admin'
+      role: "admin",
     });
+
+    const { rawToken: refreshToken } = await generateRefreshToken(
+      admin.id,
+      "admin"
+    );
 
     res.json({
       success: true,
-      message: 'Login successful',
+      message: "Login successful",
       data: {
         token,
+        refreshToken,
         user: {
           id: admin.id,
           username: admin.username,
-          role: 'admin'
-        }
-      }
+          role: "admin",
+        },
+      },
     });
   } catch (error) {
-    console.error('Admin login error:', error);
-    res.status(500).json({ 
+    console.error("Admin login error:", error);
+    res.status(500).json({
       success: false,
-      message: 'Login failed. Please try again.' 
+      message: "Login failed. Please try again.",
     });
   }
 };
@@ -66,19 +73,19 @@ export const getAdminProfile = async (req, res) => {
       select: {
         id: true,
         username: true,
-        createdAt: true
-      }
+        createdAt: true,
+      },
     });
 
     res.json({
       success: true,
-      data: admin
+      data: admin,
     });
   } catch (error) {
-    console.error('Get admin profile error:', error);
-    res.status(500).json({ 
+    console.error("Get admin profile error:", error);
+    res.status(500).json({
       success: false,
-      message: 'Failed to fetch profile.' 
+      message: "Failed to fetch profile.",
     });
   }
 };
