@@ -438,21 +438,23 @@ model Hostel {
 
   @@map("hostels")
 }
-
 model Student {
   id          String  @id @default(uuid())
   name        String
   parentName  String
   parentPhone String
   parentEmail String?
+
+  // ✅ NEW
+  secondaryPhone  String?
+  securityDeposit Float?
+
   roomNumber  String?
   bedNumber   String?
-  monthlyFee  Float
+  monthlyFee Float
 
-  // --- CHANGED HERE ---
-  feeDueDate    Int      @default(1) // The cycle day (e.g., 15th of every month)
-  admissionDate DateTime @default(now()) // Added: To track joining date
-  // --------------------
+  feeDueDate    Int      @default(1)
+  admissionDate DateTime @default(now())
 
   notes     String?
   ownerId   String
@@ -460,8 +462,8 @@ model Student {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  owner            HostelOwner        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  hostel           Hostel             @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  owner            HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  hostel           Hostel      @relation(fields: [hostelId], references: [id], onDelete: Cascade)
   parent           Parent?
   activities       Activity[]
   feeRecords       FeeRecord[]
@@ -470,6 +472,7 @@ model Student {
   alerts           Alert[]
   StudentBorrowing StudentBorrowing[]
   FeePayment       FeePayment[]
+  nightAttendance  NightAttendance[]
 
   @@map("students")
 }
@@ -688,7 +691,8 @@ model Permission {
   
   ownerId     String
   owner       HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-
+  parentResponse String?   // To store the parent's comment
+  respondedAt    DateTime? // To store when they clicked approve/reject
   type        String   // e.g., "Night Out", "Leave"
   reason      String?
   returnDate  DateTime? 
@@ -736,4 +740,24 @@ model RefreshToken {
 
   @@index([userId])
   @@map("refresh_tokens")
+}
+
+
+// Add this at the bottom of your schema file
+
+model NightAttendance {
+  id        String   @id @default(uuid())
+  date      DateTime // Will store the date (e.g., 2025-01-01)
+  status    String   // "PRESENT", "ABSENT"
+  
+  studentId String
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  
+  ownerId   String
+  hostelId  String
+  
+  createdAt DateTime @default(now())
+
+  // Ensure one record per student per day
+  @@unique([studentId, date]) 
 }

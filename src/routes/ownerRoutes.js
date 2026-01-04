@@ -118,8 +118,6 @@
 
 // export default router;
 
-
-
 import express from 'express';
 import { 
   // Auth & Global
@@ -135,7 +133,7 @@ import {
   getMyStudents,
   getStudentById,
   collectStudentFee,
-  getStudentFeeDetails, // <--- 1. NEW IMPORT ADDED HERE
+  getStudentFeeDetails,
 
   // Staff Management
   registerStaff,
@@ -160,17 +158,24 @@ import {
   recordStudentBorrowing,
   getStudentBorrowings,
   updateBorrowingStatus,
-deleteBorrowing,
+  deleteBorrowing,
+
   // Accounting & Reports
   getMonthlyAccountingReport,
   getYearlyAccountingReport,
   getDashboardSummary,
 
-  createPermission,        // <-- ADD THIS
-  getStudentPermissions,   // <-- ADD THIS
-  createAlert,             // <-- ADD THIS
-  getStudentAlerts         // <-- ADD THIS
+  createPermission,
+  getStudentPermissions,
+  createAlert,
+  getStudentAlerts,
+  getMyPayments,
+
+  // REMOVED old attendance imports from here to avoid conflicts
 } from '../controllers/ownerController.js';
+
+// ✅ Import Attendance functions ONLY from here
+import { markAttendance, getStudentAttendance } from '../controllers/attendanceController.js';
 
 import { authenticate } from '../middlewares/authMiddleware.js';
 import { authorizeRole } from '../middlewares/roleMiddleware.js';
@@ -207,11 +212,8 @@ router.get('/dashboard', getDashboardSummary);
 // --- STUDENT MANAGEMENT ---
 router.post('/students', registerStudent);
 router.get('/students', getMyStudents);
-
-// 2. NEW ROUTE ADDED HERE:
-// This gets the pending months logic for the dropdown
+router.get('/payments', getMyPayments);
 router.get('/students/:studentId/fee-details', getStudentFeeDetails); 
-
 router.get('/students/:studentId', getStudentById);
 router.post('/collect-fee', collectStudentFee);
 
@@ -235,19 +237,25 @@ router.post('/salary-payments', recordSalaryPayment);
 router.get('/salary-payments', getSalaryPayments);
 
 // --- STUDENT BORROWING ---
-// ... existing routes
 router.post('/borrowings', recordStudentBorrowing);
-router.get('/borrowings', getStudentBorrowings); // Logic updated to handle ?studentId=
+router.get('/borrowings', getStudentBorrowings);
 router.patch('/borrowings/:borrowingId', updateBorrowingStatus);
-router.delete('/borrowings/:borrowingId', deleteBorrowing); // <--- ADD THIS
-// ...
+router.delete('/borrowings/:borrowingId', deleteBorrowing);
+
 // --- ACCOUNTING REPORTS ---
 router.get('/accounting/monthly', getMonthlyAccountingReport);
 router.get('/accounting/yearly', getYearlyAccountingReport);
+
+// --- PERMISSIONS ---
 router.post('/permissions', createPermission);
 router.get('/students/:studentId/permissions', getStudentPermissions);
 
 // --- ALERTS ---
 router.post('/alerts', createAlert);
 router.get('/students/:studentId/alerts', getStudentAlerts);
+
+// --- ATTENDANCE (Updated) ---
+router.post('/attendance', markAttendance);
+router.get('/students/:studentId/attendance', getStudentAttendance);
+
 export default router;

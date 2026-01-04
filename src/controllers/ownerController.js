@@ -2999,6 +2999,8 @@
 //   }
 // };
 
+
+
 import { prisma } from "../config/database.js";
 import { hashPassword, comparePassword } from "../utils/passwordHelper.js";
 import { generateToken } from "../utils/jwtHelper.js";
@@ -3243,7 +3245,6 @@ export const getHostelById = async (req, res) => {
 };
 
 // ====================== STUDENT MANAGEMENT ======================
-
 export const registerStudent = async (req, res) => {
   try {
     const {
@@ -3251,6 +3252,8 @@ export const registerStudent = async (req, res) => {
       parentName,
       parentPhone,
       parentEmail,
+      secondaryPhone,     // ✅ optional
+      securityDeposit,    // ✅ optional
       roomNumber,
       bedNumber,
       monthlyFee,
@@ -3262,51 +3265,89 @@ export const registerStudent = async (req, res) => {
 
     const ownerId = req.user.id;
 
+    // -----------------------------
+    // 1️⃣ REQUIRED FIELD VALIDATION
+    // -----------------------------
     if (!name || !parentName || !parentPhone || !monthlyFee || !hostelId) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Required fields missing." });
+      return res.status(400).json({
+        success: false,
+        message: "Required fields missing.",
+      });
+    }
+
+    // -----------------------------
+    // 2️⃣ OPTIONAL FIELD VALIDATION
+    // -----------------------------
+    if (secondaryPhone && !/^\d{10}$/.test(secondaryPhone)) {
+      return res.status(400).json({
+        success: false,
+        message: "Secondary phone must be 10 digits.",
+      });
+    }
+
+    if (securityDeposit && isNaN(Number(securityDeposit))) {
+      return res.status(400).json({
+        success: false,
+        message: "Security deposit must be a valid number.",
+      });
     }
 
     const dueDateDay = feeDueDate ? parseInt(feeDueDate) : 1;
 
-    // Verify hostel
+    // -----------------------------
+    // 3️⃣ VERIFY HOSTEL OWNERSHIP
+    // -----------------------------
     const hostel = await prisma.hostel.findFirst({
       where: { id: hostelId, ownerId },
     });
-    if (!hostel)
-      return res
-        .status(404)
-        .json({ success: false, message: "Hostel not found." });
 
+    if (!hostel) {
+      return res.status(404).json({
+        success: false,
+        message: "Hostel not found.",
+      });
+    }
+
+    // -----------------------------
+    // 4️⃣ CREATE STUDENT
+    // -----------------------------
     const student = await prisma.student.create({
       data: {
-        name,
-        parentName,
-        parentPhone,
-        parentEmail,
-        roomNumber,
-        bedNumber,
+        name: name.trim(),
+        parentName: parentName.trim(),
+        parentPhone: parentPhone.trim(),
+        parentEmail: parentEmail?.trim() || null,
+        secondaryPhone: secondaryPhone?.trim() || null,
+        securityDeposit: securityDeposit
+          ? parseFloat(securityDeposit)
+          : null,
+        roomNumber: roomNumber?.trim() || null,
+        bedNumber: bedNumber?.trim() || null,
         monthlyFee: parseFloat(monthlyFee),
         feeDueDate: dueDateDay,
         admissionDate: admissionDate ? new Date(admissionDate) : new Date(),
-        notes,
+        notes: notes?.trim() || null,
         ownerId,
         hostelId,
       },
     });
 
-    // Create Parent Credentials
+    // -----------------------------
+    // 5️⃣ CREATE PARENT CREDENTIALS
+    // -----------------------------
     const cleanName = parentName
       .trim()
       .split(" ")[0]
       .toLowerCase()
       .replace(/[^a-z0-9]/g, "");
+
     const randomDigits = Math.floor(100 + Math.random() * 900);
     const username = `${cleanName}@${randomDigits}`;
+
     const plainPassword = Math.floor(
       100000 + Math.random() * 900000
     ).toString();
+
     const hashedPassword = await hashPassword(plainPassword);
 
     const parent = await prisma.parent.create({
@@ -3316,14 +3357,17 @@ export const registerStudent = async (req, res) => {
         plainPassword,
         name: parentName,
         phone: parentPhone,
-        email: parentEmail,
+        email: parentEmail || null,
         studentId: student.id,
       },
     });
 
-    res.status(201).json({
+    // -----------------------------
+    // 6️⃣ SUCCESS RESPONSE
+    // -----------------------------
+    return res.status(201).json({
       success: true,
-      message: "Student registered",
+      message: "Student registered successfully",
       data: {
         student,
         parentCredentials: {
@@ -3332,13 +3376,16 @@ export const registerStudent = async (req, res) => {
         },
       },
     });
+
   } catch (error) {
     console.error("Register student error:", error);
-    res
-      .status(500)
-      .json({ success: false, message: "Failed to register student." });
+    return res.status(500).json({
+      success: false,
+      message: "Failed to register student.",
+    });
   }
 };
+
 
 // --- UPGRADED: Get Students with Pending Month Count ---
 export const getMyStudents = async (req, res) => {
@@ -4329,6 +4376,7 @@ export const getYearlyAccountingReport = async (req, res) => {
 
 
 // ====================== PERMISSIONS & ALERTS ======================
+// In src/controllers/ownerController.js
 
 export const createPermission = async (req, res) => {
   try {
@@ -4339,7 +4387,7 @@ export const createPermission = async (req, res) => {
       return res.status(400).json({ success: false, message: "Type is required" });
     }
 
-    // 1. Create Permission Record
+    // 1. Create Permission Record (CHANGED STATUS TO PENDING)
     const permission = await prisma.permission.create({
       data: {
         studentId,
@@ -4347,28 +4395,32 @@ export const createPermission = async (req, res) => {
         type,
         reason: reason || "No reason provided",
         returnDate: returnDate ? new Date(returnDate) : null,
-        status: "APPROVED", // Enum value from your schema
+        status: "PENDING", // <--- CHANGED FROM "APPROVED" TO "PENDING"
       },
     });
 
-    // 2. Log Activity (Using your ActivityType Enum)
+    // 2. Log Activity (UPDATED TITLE AND STATUS)
     await prisma.activity.create({
       data: {
         studentId,
-        type: "PERMISSION", // Matches ActivityType enum
-        title: `Permission Granted: ${type}`,
+        type: "PERMISSION",
+        title: `Permission Requested: ${type}`, // <--- Changed "Granted" to "Requested"
         description: reason,
-        status: "Approved",
+        status: "Pending", // <--- Changed "Approved" to "Pending"
       },
     });
 
-    res.status(201).json({ success: true, message: "Permission sent", data: permission });
+    res.status(201).json({ 
+      success: true, 
+      message: "Permission request sent to parent", // <--- Updated message
+      data: permission 
+    });
+    
   } catch (error) {
     console.error("Create permission error:", error);
     res.status(500).json({ success: false, message: "Failed to create permission" });
   }
 };
-
 export const getStudentPermissions = async (req, res) => {
   try {
     const { studentId } = req.params;
@@ -4432,5 +4484,104 @@ export const getStudentAlerts = async (req, res) => {
   } catch (error) {
     console.error("Get alerts error:", error);
     res.status(500).json({ success: false, message: "Fetch failed" });
+  }
+};
+
+
+// --- Get All Payments (For Reports) ---
+export const getMyPayments = async (req, res) => {
+  try {
+    const ownerId = req.user.id;
+    const { year } = req.query;
+
+    const where = { ownerId };
+    if (year) {
+      where.paymentYear = parseInt(year);
+    }
+
+    const payments = await prisma.feePayment.findMany({
+      where,
+      orderBy: { paymentDate: 'desc' },
+      select: {
+        id: true,
+        amount: true,
+        paymentDate: true,
+        paymentMonth: true,
+        paymentYear: true,
+      }
+    });
+
+    res.json({ success: true, data: payments });
+  } catch (error) {
+    console.error("Get payments error:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch payments", data: [] });
+  }
+};
+
+// ====================== NIGHT ATTENDANCE ======================
+
+export const markNightAttendance = async (req, res) => {
+  try {
+    const { studentId, status, date } = req.body;
+    const ownerId = req.user.id;
+
+    if (!studentId || !status || !date) {
+      return res.status(400).json({ success: false, message: "Missing fields" });
+    }
+
+    const student = await prisma.student.findUnique({ where: { id: studentId } });
+    if (!student) return res.status(404).json({ message: "Student not found" });
+
+    // Normalize date to remove time (store as YYYY-MM-DD 00:00:00)
+    const attendanceDate = new Date(date);
+    attendanceDate.setHours(0, 0, 0, 0);
+
+    const record = await prisma.nightAttendance.upsert({
+      where: {
+        studentId_date: {
+          studentId,
+          date: attendanceDate,
+        },
+      },
+      update: { status },
+      create: {
+        studentId,
+        status,
+        date: attendanceDate,
+        ownerId,
+        hostelId: student.hostelId,
+      },
+    });
+
+    res.json({ success: true, data: record });
+  } catch (error) {
+    console.error("Mark attendance error:", error);
+    res.status(500).json({ success: false, message: "Failed to mark attendance" });
+  }
+};
+
+export const getStudentAttendance = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const { month, year } = req.query; // Optional filters
+
+    const where = { studentId };
+
+    // If month/year provided, filter by range
+    if (month && year) {
+      const startDate = new Date(year, month - 1, 1);
+      const endDate = new Date(year, month, 0, 23, 59, 59);
+      where.date = { gte: startDate, lte: endDate };
+    }
+
+    const records = await prisma.nightAttendance.findMany({
+      where,
+      orderBy: { date: 'desc' },
+    });
+
+    res.json({ success: true, data: records });
+  } catch (error) {
+    console.error("Get attendance error:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch attendance" });
   }
 };
