@@ -9,6 +9,7 @@ import ownerRoutes from "./routes/ownerRoutes.js";
 import parentRoutes from "./routes/parentRoutes.js";
 import activityRoutes from "./routes/activityRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
+import wardenRoutes from "./routes/wardenRoutes.js";
 const app = express();
 
 
@@ -33,6 +34,7 @@ app.get("/", (req, res) => {
 // Routes
 app.use("/api/admin", adminRoutes);
 app.use("/api/owner", ownerRoutes);
+app.use("/api/warden", wardenRoutes);
 app.use("/api/parent", parentRoutes);
 app.use("/api/activites", activityRoutes);
 app.use("/api/auth", authRoutes);

@@ -114,34 +114,6 @@
 //   @@map("students")
 // }
 
-// model Staff {
-//   id                   String   @id @default(uuid())
-//   name                 String
-//   phone                String
-//   email                String?
-//   role                 String // Manager, Warden, Cook, Cleaner, Security, Maintenance, Other
-//   salary               Float
-//   joiningDate          DateTime @default(now())
-//   address              String?
-//   idProofType          String? // Aadhar, PAN, Voter ID, etc.
-//   idProofNumber        String?
-//   emergencyContact     String?
-//   emergencyContactName String?
-//   isActive             Boolean  @default(true)
-//   createdAt            DateTime @default(now())
-//   updatedAt            DateTime @updatedAt
-
-//   owner   HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-//   ownerId String
-
-//   hostel   Hostel @relation(fields: [hostelId], references: [id], onDelete: Cascade)
-//   hostelId String
-//    salaryPayments    SalaryPayment[]
-//   @@index([ownerId])
-//   @@index([hostelId])
-//   @@index([phone])
-// }
-
 // model Expense {
 //   id            String   @id @default(uuid())
 //   title         String
@@ -476,26 +448,73 @@ model Student {
 
   @@map("students")
 }
+// model Staff {
+//   id                   String   @id @default(uuid())
+//   name                 String
+//   phone                String   @unique // ✅ Added @unique so they can login
+//   password             String?  // ✅ Added for Warden Login (Optional for Cooks/Cleaners)
+  
+//   role                 String   @default("WARDEN") // Manager, Warden, Cook, Cleaner
+  
+//   // --- PERMISSIONS (For Wardens/Managers) ---
+//   canMarkAttendance    Boolean  @default(false)
+//   canViewStudents      Boolean  @default(false)
+//   canAddExpenses       Boolean  @default(false)
+//   canCollectFee        Boolean  @default(false)
+
+//   // --- Existing Staff Fields (Keep these!) ---
+//   email                String?
+//   salary               Float?   // Made optional in case you just add a warden quickly
+//   joiningDate          DateTime @default(now())
+//   address              String?
+//   idProofType          String? 
+//   idProofNumber        String?
+//   emergencyContact     String?
+//   emergencyContactName String?
+//   isActive             Boolean  @default(true)
+  
+//   createdAt            DateTime @default(now())
+//   updatedAt            DateTime @updatedAt
+
+//   // --- Relations ---
+//   owner   HostelOwner? @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+//   ownerId String?      // Made optional if you create staff without linking owner directly immediately
+
+//   hostel         Hostel          @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+//   hostelId       String
+//   salaryPayments SalaryPayment[]
+
+//   @@index([ownerId])
+//   @@index([hostelId])
+//   @@index([phone])
+//   @@map("staff") 
+// }
 
 model Staff {
   id                   String   @id @default(uuid())
   name                 String
-  phone                String
+  phone                String   @unique // Login Username
+  password             String?  // Login Password
+  
+  role                 String   @default("WARDEN") // We will check this Role in the app
+  
+  // --- Existing Staff Fields ---
   email                String?
-  role                 String // Manager, Warden, Cook, Cleaner, Security, Maintenance, Other
-  salary               Float
+  salary               Float?   
   joiningDate          DateTime @default(now())
   address              String?
-  idProofType          String? // Aadhar, PAN, Voter ID, etc.
+  idProofType          String? 
   idProofNumber        String?
   emergencyContact     String?
   emergencyContactName String?
   isActive             Boolean  @default(true)
+  
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
-  owner   HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  ownerId String
+  // --- Relations ---
+  owner   HostelOwner? @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId String?      
 
   hostel         Hostel          @relation(fields: [hostelId], references: [id], onDelete: Cascade)
   hostelId       String
@@ -504,8 +523,8 @@ model Staff {
   @@index([ownerId])
   @@index([hostelId])
   @@index([phone])
+  @@map("staff") 
 }
-
 model Expense {
   id            String   @id @default(uuid())
   title         String
@@ -516,7 +535,7 @@ model Expense {
   paymentMethod String   @default("Cash") // Cash, Bank Transfer, UPI, Card
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-
+  status        String   @default("APPROVED") // Add this line! (Values: PENDING, APPROVED, REJECTED)
   owner   HostelOwner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   ownerId String
 

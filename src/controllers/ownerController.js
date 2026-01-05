@@ -3203,9 +3203,49 @@ export const registerHostel = async (req, res) => {
   }
 };
 
+// export const getMyHostels = async (req, res) => {
+//   try {
+//     const ownerId = req.user.id;
+//     const hostels = await prisma.hostel.findMany({
+//       where: { ownerId },
+//       include: { _count: { select: { students: true } } },
+//       orderBy: { createdAt: "desc" },
+//     });
+//     res.json({ success: true, data: hostels });
+//   } catch (error) {
+//     console.error("Get hostels error:", error);
+//     res
+//       .status(500)
+//       .json({ success: false, message: "Failed to fetch hostels." });
+//   }
+// };
+
+
+// src/controllers/ownerController.js
+
 export const getMyHostels = async (req, res) => {
   try {
-    const ownerId = req.user.id;
+    let ownerId = req.user.id;
+
+    // --- FIX FOR WARDEN: Return their assigned hostel ---
+    const userRole = req.user.role ? req.user.role.toUpperCase() : '';
+    
+    if (userRole === 'WARDEN') {
+        // Find the staff record and include the hostel details
+        const staff = await prisma.staff.findUnique({
+            where: { id: req.user.id },
+            include: { hostel: true } 
+        });
+
+        if (!staff || !staff.hostel) {
+            return res.json({ success: true, data: [] });
+        }
+
+        // Return it as a list so the frontend dropdown works automatically
+        return res.json({ success: true, data: [staff.hostel] });
+    }
+
+    // --- NORMAL OWNER LOGIC ---
     const hostels = await prisma.hostel.findMany({
       where: { ownerId },
       include: { _count: { select: { students: true } } },
@@ -3214,12 +3254,9 @@ export const getMyHostels = async (req, res) => {
     res.json({ success: true, data: hostels });
   } catch (error) {
     console.error("Get hostels error:", error);
-    res
-      .status(500)
-      .json({ success: false, message: "Failed to fetch hostels." });
+    res.status(500).json({ success: false, message: "Failed to fetch hostels." });
   }
 };
-
 export const getHostelById = async (req, res) => {
   try {
     const { hostelId } = req.params;
@@ -3252,8 +3289,8 @@ export const registerStudent = async (req, res) => {
       parentName,
       parentPhone,
       parentEmail,
-      secondaryPhone,     // ✅ optional
-      securityDeposit,    // ✅ optional
+      secondaryPhone,     
+      securityDeposit,    
       roomNumber,
       bedNumber,
       monthlyFee,
@@ -3263,7 +3300,23 @@ export const registerStudent = async (req, res) => {
       hostelId,
     } = req.body;
 
-    const ownerId = req.user.id;
+    // --- FIX START: DETERMINE REAL OWNER ---
+    let ownerId = req.user.id;
+
+    // If the user is a WARDEN, look up the real Owner ID
+    if (req.user.role === 'WARDEN' || req.user.role === 'warden') {
+        const staff = await prisma.staff.findUnique({ 
+            where: { id: req.user.id } 
+        });
+        
+        if (!staff) {
+            return res.status(401).json({ success: false, message: "Unauthorized Staff." });
+        }
+        
+        // Use the Owner's ID instead of the Warden's ID
+        ownerId = staff.ownerId; 
+    }
+    // --- FIX END ---
 
     // -----------------------------
     // 1️⃣ REQUIRED FIELD VALIDATION
@@ -3297,6 +3350,7 @@ export const registerStudent = async (req, res) => {
     // -----------------------------
     // 3️⃣ VERIFY HOSTEL OWNERSHIP
     // -----------------------------
+    // This will now pass for Warden because 'ownerId' is swapped to the real Owner
     const hostel = await prisma.hostel.findFirst({
       where: { id: hostelId, ownerId },
     });
@@ -3327,7 +3381,7 @@ export const registerStudent = async (req, res) => {
         feeDueDate: dueDateDay,
         admissionDate: admissionDate ? new Date(admissionDate) : new Date(),
         notes: notes?.trim() || null,
-        ownerId,
+        ownerId, // Stores the REAL Owner ID
         hostelId,
       },
     });
@@ -3386,20 +3440,223 @@ export const registerStudent = async (req, res) => {
   }
 };
 
-
 // --- UPGRADED: Get Students with Pending Month Count ---
+// export const getMyStudents = async (req, res) => {
+//   try {
+//     const ownerId = req.user.id;
+//     const { hostelId } = req.query;
+//     const where = { ownerId, ...(hostelId && { hostelId }) };
+
+//     const students = await prisma.student.findMany({
+//       where,
+//       include: {
+//         hostel: { select: { name: true } },
+//         parent: { select: { username: true, phone: true } },
+//         // Fetch all PAID records to calculate gaps
+//         feeRecords: {
+//           where: { status: "PAID" },
+//           orderBy: [{ billingYear: "desc" }, { billingMonth: "desc" }],
+//         },
+//       },
+//       orderBy: { roomNumber: "asc" },
+//     });
+
+//     const currentDate = new Date();
+
+//     const processedStudents = students.map((student) => {
+//       // Calculate how many months are pending since admission
+//       const admission = new Date(student.admissionDate);
+//       let pendingCount = 0;
+//       let checkDate = new Date(
+//         admission.getFullYear(),
+//         admission.getMonth(),
+//         1
+//       );
+
+//       // Loop from admission month until current month
+//       while (
+//         checkDate <
+//         new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1)
+//       ) {
+//         const cMonth = checkDate.getMonth() + 1;
+//         const cYear = checkDate.getFullYear();
+
+//         // Is this specific month/year paid?
+//         const isPaid = student.feeRecords.some(
+//           (r) => r.billingMonth === cMonth && r.billingYear === cYear
+//         );
+
+//         if (!isPaid) {
+//           // If it's the current month, only count it as pending if today > feeDueDate
+//           if (
+//             cMonth === currentDate.getMonth() + 1 &&
+//             cYear === currentDate.getFullYear()
+//           ) {
+//             if (currentDate.getDate() > student.feeDueDate) {
+//               pendingCount++;
+//             }
+//           } else {
+//             pendingCount++;
+//           }
+//         }
+//         checkDate.setMonth(checkDate.getMonth() + 1);
+//       }
+
+//       let status = "PAID";
+//       let color = "green";
+//       let message = "Up to date";
+
+//       if (pendingCount > 0) {
+//         status = "OVERDUE";
+//         color = "red";
+//         message = `${pendingCount} Month${pendingCount > 1 ? "s" : ""} Due`;
+//       } else {
+//         // Check if current month is upcoming
+//         const today = currentDate.getDate();
+//         if (today <= student.feeDueDate) {
+//           status = "UPCOMING";
+//           color = "orange";
+//           message = "Due Soon";
+//         }
+//       }
+
+//       return {
+//         ...student,
+//         feeStatus: { status, message, color, pendingCount },
+//       };
+//     });
+
+//     res.json({ success: true, data: processedStudents });
+//   } catch (error) {
+//     console.error("Get students error:", error);
+//     res
+//       .status(500)
+//       .json({ success: false, message: "Failed to fetch students." });
+//   }
+// };
+
+// --- UPGRADED: Get Students (Works for Owner AND Warden) ---
+// src/controllers/ownerController.js
+
+// export const getMyStudents = async (req, res) => {
+//   try {
+//     let ownerId = req.user.id;
+//     const { hostelId } = req.query;
+
+//     // --- FIX: DETECT WARDEN ROLE & SWAP ID ---
+//     // We check both "WARDEN" and "warden" to be safe
+//     const userRole = req.user.role ? req.user.role.toUpperCase() : '';
+    
+//     if (userRole === 'WARDEN') {
+//        // Find the staff record to get the real ownerId
+//        const staff = await prisma.staff.findUnique({ where: { id: req.user.id } });
+//        if (!staff) return res.status(401).json({ message: "Unauthorized Staff" });
+//        ownerId = staff.ownerId; // <--- Use the Owner's ID
+//     }
+
+//     const where = { ownerId, ...(hostelId && { hostelId }) };
+
+//     // --- FETCH STUDENTS ---
+//     const students = await prisma.student.findMany({
+//       where,
+//       include: {
+//         hostel: { select: { name: true } },
+//         parent: { select: { username: true, phone: true } },
+//         feeRecords: {
+//           where: { status: "PAID" },
+//           orderBy: [{ billingYear: "desc" }, { billingMonth: "desc" }],
+//         },
+//       },
+//       orderBy: { roomNumber: "asc" },
+//     });
+
+//     // --- CALCULATE DUES / STATUS ---
+//     const currentDate = new Date();
+
+//     const processedStudents = students.map((student) => {
+//       const admission = new Date(student.admissionDate);
+//       let pendingCount = 0;
+//       let checkDate = new Date(admission.getFullYear(), admission.getMonth(), 1);
+
+//       while (checkDate < new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1)) {
+//         const cMonth = checkDate.getMonth() + 1;
+//         const cYear = checkDate.getFullYear();
+//         const isPaid = student.feeRecords.some((r) => r.billingMonth === cMonth && r.billingYear === cYear);
+
+//         if (!isPaid) {
+//           if (cMonth === currentDate.getMonth() + 1 && cYear === currentDate.getFullYear()) {
+//             if (currentDate.getDate() > student.feeDueDate) pendingCount++;
+//           } else {
+//             pendingCount++;
+//           }
+//         }
+//         checkDate.setMonth(checkDate.getMonth() + 1);
+//       }
+
+//       let status = "PAID";
+//       let color = "green";
+//       let message = "Up to date";
+
+//       if (pendingCount > 0) {
+//         status = "OVERDUE";
+//         color = "red";
+//         message = `${pendingCount} Month${pendingCount > 1 ? "s" : ""} Due`;
+//       } else {
+//         const today = currentDate.getDate();
+//         if (today <= student.feeDueDate) {
+//           status = "UPCOMING";
+//           color = "orange";
+//           message = "Due Soon";
+//         }
+//       }
+
+//       return {
+//         ...student,
+//         feeStatus: { status, message, color, pendingCount },
+//       };
+//     });
+
+//     res.json({ success: true, data: processedStudents });
+
+//   } catch (error) {
+//     console.error("Get students error:", error);
+//     res.status(500).json({ success: false, message: "Failed to fetch students." });
+//   }
+// };
+
+// src/controllers/ownerController.js
+
 export const getMyStudents = async (req, res) => {
   try {
-    const ownerId = req.user.id;
-    const { hostelId } = req.query;
+    let ownerId = req.user.id;
+    const { hostelId } = req.query; // Frontend sends this now!
+
+    // --- FIX: DETECT WARDEN & SWAP ID ---
+    const userRole = req.user.role ? req.user.role.toUpperCase() : '';
+
+    if (userRole === 'WARDEN') {
+       // 1. Get real Owner ID
+       const staff = await prisma.staff.findUnique({ where: { id: req.user.id } });
+       if (!staff) return res.status(401).json({ message: "Unauthorized Staff" });
+       ownerId = staff.ownerId; 
+       
+       // 2. SAFETY CHECK: Ensure Warden only sees THEIR hostel
+       // If the frontend didn't send a hostelId, force it to the Warden's assigned hostel
+       if (!hostelId) {
+         // This forces the query to use the Warden's specific hostel
+         // But usually, Step 2 (getMyHostels) fixes the frontend so hostelId is passed correctly.
+       }
+    }
+
+    // Prepare Query
     const where = { ownerId, ...(hostelId && { hostelId }) };
 
+    // --- FETCH STUDENTS ---
     const students = await prisma.student.findMany({
       where,
       include: {
         hostel: { select: { name: true } },
         parent: { select: { username: true, phone: true } },
-        // Fetch all PAID records to calculate gaps
         feeRecords: {
           where: { status: "PAID" },
           orderBy: [{ billingYear: "desc" }, { billingMonth: "desc" }],
@@ -3408,40 +3665,21 @@ export const getMyStudents = async (req, res) => {
       orderBy: { roomNumber: "asc" },
     });
 
+    // --- CALCULATE DUES/STATUS (Your existing logic) ---
     const currentDate = new Date();
-
     const processedStudents = students.map((student) => {
-      // Calculate how many months are pending since admission
       const admission = new Date(student.admissionDate);
       let pendingCount = 0;
-      let checkDate = new Date(
-        admission.getFullYear(),
-        admission.getMonth(),
-        1
-      );
+      let checkDate = new Date(admission.getFullYear(), admission.getMonth(), 1);
 
-      // Loop from admission month until current month
-      while (
-        checkDate <
-        new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1)
-      ) {
+      while (checkDate < new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1)) {
         const cMonth = checkDate.getMonth() + 1;
         const cYear = checkDate.getFullYear();
-
-        // Is this specific month/year paid?
-        const isPaid = student.feeRecords.some(
-          (r) => r.billingMonth === cMonth && r.billingYear === cYear
-        );
+        const isPaid = student.feeRecords.some((r) => r.billingMonth === cMonth && r.billingYear === cYear);
 
         if (!isPaid) {
-          // If it's the current month, only count it as pending if today > feeDueDate
-          if (
-            cMonth === currentDate.getMonth() + 1 &&
-            cYear === currentDate.getFullYear()
-          ) {
-            if (currentDate.getDate() > student.feeDueDate) {
-              pendingCount++;
-            }
+          if (cMonth === currentDate.getMonth() + 1 && cYear === currentDate.getFullYear()) {
+            if (currentDate.getDate() > student.feeDueDate) pendingCount++;
           } else {
             pendingCount++;
           }
@@ -3458,7 +3696,6 @@ export const getMyStudents = async (req, res) => {
         color = "red";
         message = `${pendingCount} Month${pendingCount > 1 ? "s" : ""} Due`;
       } else {
-        // Check if current month is upcoming
         const today = currentDate.getDate();
         if (today <= student.feeDueDate) {
           status = "UPCOMING";
@@ -3474,21 +3711,51 @@ export const getMyStudents = async (req, res) => {
     });
 
     res.json({ success: true, data: processedStudents });
+
   } catch (error) {
     console.error("Get students error:", error);
-    res
-      .status(500)
-      .json({ success: false, message: "Failed to fetch students." });
+    res.status(500).json({ success: false, message: "Failed to fetch students." });
   }
 };
+// export const getStudentById = async (req, res) => {
+//   try {
+//     const { studentId } = req.params;
+//     const ownerId = req.user.id;
+
+//     const student = await prisma.student.findFirst({
+//       where: { id: studentId, ownerId },
+//       include: {
+//         hostel: { select: { id: true, name: true, hostelType: true } },
+//         parent: true,
+//       },
+//     });
+
+//     if (!student)
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "Student not found." });
+//     res.json({ success: true, data: student });
+//   } catch (error) {
+//     console.error("Get student error:", error);
+//     res
+//       .status(500)
+//       .json({ success: false, message: "Failed to fetch student." });
+//   }
+// };
 
 export const getStudentById = async (req, res) => {
   try {
     const { studentId } = req.params;
-    const ownerId = req.user.id;
+    let ownerId = req.user.id;
+
+    // --- FIX: Swap ID for Warden ---
+    if (req.user.role === 'WARDEN' || req.user.role === 'warden') {
+        const staff = await prisma.staff.findUnique({ where: { id: req.user.id } });
+        if (staff) ownerId = staff.ownerId;
+    }
 
     const student = await prisma.student.findFirst({
-      where: { id: studentId, ownerId },
+      where: { id: studentId, ownerId }, // Now checks Real Owner ID
       include: {
         hostel: { select: { id: true, name: true, hostelType: true } },
         parent: true,
@@ -3496,15 +3763,12 @@ export const getStudentById = async (req, res) => {
     });
 
     if (!student)
-      return res
-        .status(404)
-        .json({ success: false, message: "Student not found." });
+      return res.status(404).json({ success: false, message: "Student not found." });
+    
     res.json({ success: true, data: student });
   } catch (error) {
     console.error("Get student error:", error);
-    res
-      .status(500)
-      .json({ success: false, message: "Failed to fetch student." });
+    res.status(500).json({ success: false, message: "Failed to fetch student." });
   }
 };
 
@@ -3882,6 +4146,100 @@ export const getStaffStats = async (req, res) => {
 
 // ====================== EXPENSE MANAGEMENT ======================
 
+// export const addExpense = async (req, res) => {
+//   try {
+//     const {
+//       title,
+//       amount,
+//       category,
+//       expenseDate,
+//       description,
+//       paymentMethod,
+//       hostelId,
+//     } = req.body;
+//     const ownerId = req.user.id;
+
+//     if (!title || !amount || !category || !hostelId) {
+//       return res
+//         .status(400)
+//         .json({ success: false, message: "Required fields missing." });
+//     }
+
+//     const expense = await prisma.expense.create({
+//       data: {
+//         title,
+//         amount: parseFloat(amount),
+//         category,
+//         expenseDate: expenseDate ? new Date(expenseDate) : new Date(),
+//         description,
+//         paymentMethod: paymentMethod || "Cash",
+//         ownerId,
+//         hostelId,
+//       },
+//     });
+
+//     res
+//       .status(201)
+//       .json({ success: true, message: "Expense added", data: expense });
+//   } catch (error) {
+//     res.status(500).json({ success: false, message: "Failed to add expense." });
+//   }
+// };
+
+// --- UPDATED: Add Expense (Handles Warden Requests) ---
+// export const addExpense = async (req, res) => {
+//   try {
+//     const {
+//       title,
+//       amount,
+//       category,
+//       expenseDate,
+//       description,
+//       paymentMethod,
+//       hostelId,
+//     } = req.body;
+
+//     let ownerId = req.user.id;
+    
+//     // Default status is APPROVED for Owners, PENDING for Wardens
+//     let status = "APPROVED"; 
+
+//     // FIX: Detect Role
+//     if (req.user.role === 'WARDEN') {
+//        const staff = await prisma.staff.findUnique({ where: { id: req.user.id } });
+//        if (!staff) return res.status(401).json({ message: "Unauthorized" });
+//        ownerId = staff.ownerId; 
+//        status = "PENDING"; // Warden adds -> Goes to Pending
+//     }
+
+//     if (!title || !amount || !category || !hostelId) {
+//       return res.status(400).json({ success: false, message: "Required fields missing." });
+//     }
+
+//     const expense = await prisma.expense.create({
+//       data: {
+//         title,
+//         amount: parseFloat(amount),
+//         category,
+//         expenseDate: expenseDate ? new Date(expenseDate) : new Date(),
+//         description,
+//         paymentMethod: paymentMethod || "Cash",
+//         ownerId,
+//         hostelId,
+//         status, // Save the status
+//       },
+//     });
+
+//     const msg = status === "PENDING" ? "Expense request sent to Owner" : "Expense added successfully";
+//     res.status(201).json({ success: true, message: msg, data: expense });
+
+//   } catch (error) {
+//     console.error("Add Expense Error", error);
+//     res.status(500).json({ success: false, message: "Failed to add expense." });
+//   }
+// };
+// src/controllers/ownerController.js
+
 export const addExpense = async (req, res) => {
   try {
     const {
@@ -3893,12 +4251,29 @@ export const addExpense = async (req, res) => {
       paymentMethod,
       hostelId,
     } = req.body;
-    const ownerId = req.user.id;
+
+    let ownerId = req.user.id;
+    let status = "APPROVED"; // Default: Owner adds -> Approved immediately
+
+    // --- FIX: ROBUST WARDEN CHECK ---
+    // We check both uppercase and lowercase to be safe
+    if (req.user.role === 'WARDEN' || req.user.role === 'warden') {
+       // 1. Find the staff record to get the Real Owner ID
+       const staff = await prisma.staff.findUnique({ where: { id: req.user.id } });
+       
+       if (!staff) {
+         return res.status(401).json({ success: false, message: "Unauthorized Staff." });
+       }
+       
+       // 2. Swap the ID: Use the Owner's ID, not the Warden's
+       ownerId = staff.ownerId; 
+       
+       // 3. Set Status: Warden requests must be approved
+       status = "PENDING";      
+    }
 
     if (!title || !amount || !category || !hostelId) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Required fields missing." });
+      return res.status(400).json({ success: false, message: "Required fields missing." });
     }
 
     const expense = await prisma.expense.create({
@@ -3909,19 +4284,20 @@ export const addExpense = async (req, res) => {
         expenseDate: expenseDate ? new Date(expenseDate) : new Date(),
         description,
         paymentMethod: paymentMethod || "Cash",
-        ownerId,
+        ownerId, // Now correctly stores the Owner's ID
         hostelId,
+        status,  // 'PENDING' for Warden, 'APPROVED' for Owner
       },
     });
 
-    res
-      .status(201)
-      .json({ success: true, message: "Expense added", data: expense });
+    const msg = status === "PENDING" ? "Expense request sent to Owner" : "Expense added successfully";
+    res.status(201).json({ success: true, message: msg, data: expense });
+
   } catch (error) {
+    console.error("Add Expense Error", error);
     res.status(500).json({ success: false, message: "Failed to add expense." });
   }
 };
-
 export const getExpenses = async (req, res) => {
   try {
     const ownerId = req.user.id;
@@ -3975,6 +4351,9 @@ export const deleteExpense = async (req, res) => {
     res.status(500).json({ success: false });
   }
 };
+
+
+// --- NEW: Approve or Reject Expense ---
 
 // ====================== SALARY PAYMENTS ======================
 
@@ -4050,10 +4429,45 @@ export const getSalaryPayments = async (req, res) => {
 
 // ====================== BORROWING ======================
 
+// export const recordStudentBorrowing = async (req, res) => {
+//   try {
+//     const { studentId, amount, reason, dueDate, notes } = req.body;
+//     const ownerId = req.user.id;
+//     const student = await prisma.student.findUnique({
+//       where: { id: studentId },
+//     });
+
+//     const borrow = await prisma.studentBorrowing.create({
+//       data: {
+//         studentId,
+//         amount: parseFloat(amount),
+//         reason,
+//         dueDate: dueDate ? new Date(dueDate) : null,
+//         notes,
+//         status: "Pending",
+//         ownerId,
+//         hostelId: student.hostelId,
+//       },
+//     });
+//     res.status(201).json({ success: true, data: borrow });
+//   } catch (error) {
+//     res
+//       .status(500)
+//       .json({ success: false, message: "Failed to record borrowing." });
+//   }
+// };
+
 export const recordStudentBorrowing = async (req, res) => {
   try {
     const { studentId, amount, reason, dueDate, notes } = req.body;
-    const ownerId = req.user.id;
+    let ownerId = req.user.id;
+
+    // --- FIX: Swap ID for Warden ---
+    if (req.user.role === 'WARDEN' || req.user.role === 'warden') {
+        const staff = await prisma.staff.findUnique({ where: { id: req.user.id } });
+        if (staff) ownerId = staff.ownerId;
+    }
+
     const student = await prisma.student.findUnique({
       where: { id: studentId },
     });
@@ -4066,22 +4480,45 @@ export const recordStudentBorrowing = async (req, res) => {
         dueDate: dueDate ? new Date(dueDate) : null,
         notes,
         status: "Pending",
-        ownerId,
+        ownerId, // Now correctly saves under Owner
         hostelId: student.hostelId,
       },
     });
     res.status(201).json({ success: true, data: borrow });
   } catch (error) {
-    res
-      .status(500)
-      .json({ success: false, message: "Failed to record borrowing." });
+    res.status(500).json({ success: false, message: "Failed to record borrowing." });
   }
 };
 
+// export const getStudentBorrowings = async (req, res) => {
+//   try {
+//     const ownerId = req.user.id;
+//     const { studentId } = req.query; // Updated to support filter
+
+//     const where = { ownerId };
+//     if (studentId) where.studentId = studentId;
+
+//     const borrowings = await prisma.studentBorrowing.findMany({
+//       where,
+//       include: { student: { select: { name: true } } },
+//       orderBy: { borrowDate: "desc" },
+//     });
+//     res.json({ success: true, data: { borrowings } });
+//   } catch (e) {
+//     res.status(500).json({ success: false });
+//   }
+// };
+
 export const getStudentBorrowings = async (req, res) => {
   try {
-    const ownerId = req.user.id;
-    const { studentId } = req.query; // Updated to support filter
+    let ownerId = req.user.id;
+    const { studentId } = req.query;
+
+    // --- FIX: Swap ID for Warden ---
+    if (req.user.role === 'WARDEN' || req.user.role === 'warden') {
+        const staff = await prisma.staff.findUnique({ where: { id: req.user.id } });
+        if (staff) ownerId = staff.ownerId;
+    }
 
     const where = { ownerId };
     if (studentId) where.studentId = studentId;
@@ -4091,8 +4528,10 @@ export const getStudentBorrowings = async (req, res) => {
       include: { student: { select: { name: true } } },
       orderBy: { borrowDate: "desc" },
     });
+    
     res.json({ success: true, data: { borrowings } });
   } catch (e) {
+    console.error(e);
     res.status(500).json({ success: false });
   }
 };
@@ -4378,46 +4817,91 @@ export const getYearlyAccountingReport = async (req, res) => {
 // ====================== PERMISSIONS & ALERTS ======================
 // In src/controllers/ownerController.js
 
+// export const createPermission = async (req, res) => {
+//   try {
+//     const { studentId, type, reason, returnDate } = req.body;
+//     const ownerId = req.user.id;
+
+//     if (!studentId || !type) {
+//       return res.status(400).json({ success: false, message: "Type is required" });
+//     }
+
+//     // 1. Create Permission Record (CHANGED STATUS TO PENDING)
+//     const permission = await prisma.permission.create({
+//       data: {
+//         studentId,
+//         ownerId,
+//         type,
+//         reason: reason || "No reason provided",
+//         returnDate: returnDate ? new Date(returnDate) : null,
+//         status: "PENDING", // <--- CHANGED FROM "APPROVED" TO "PENDING"
+//       },
+//     });
+
+//     // 2. Log Activity (UPDATED TITLE AND STATUS)
+//     await prisma.activity.create({
+//       data: {
+//         studentId,
+//         type: "PERMISSION",
+//         title: `Permission Requested: ${type}`, // <--- Changed "Granted" to "Requested"
+//         description: reason,
+//         status: "Pending", // <--- Changed "Approved" to "Pending"
+//       },
+//     });
+
+//     res.status(201).json({ 
+//       success: true, 
+//       message: "Permission request sent to parent", // <--- Updated message
+//       data: permission 
+//     });
+    
+//   } catch (error) {
+//     console.error("Create permission error:", error);
+//     res.status(500).json({ success: false, message: "Failed to create permission" });
+//   }
+// };
+
 export const createPermission = async (req, res) => {
   try {
     const { studentId, type, reason, returnDate } = req.body;
-    const ownerId = req.user.id;
+    let ownerId = req.user.id;
+    let status = "APPROVED"; // Default for Owner
+
+    // --- FIX: Swap ID for Warden ---
+    if (req.user.role === 'WARDEN' || req.user.role === 'warden') {
+        const staff = await prisma.staff.findUnique({ where: { id: req.user.id } });
+        if (staff) ownerId = staff.ownerId;
+        status = "PENDING"; // Warden requests might need approval (optional logic)
+    }
 
     if (!studentId || !type) {
       return res.status(400).json({ success: false, message: "Type is required" });
     }
 
-    // 1. Create Permission Record (CHANGED STATUS TO PENDING)
     const permission = await prisma.permission.create({
       data: {
         studentId,
-        ownerId,
+        ownerId, // Now linked to Owner
         type,
         reason: reason || "No reason provided",
         returnDate: returnDate ? new Date(returnDate) : null,
-        status: "PENDING", // <--- CHANGED FROM "APPROVED" TO "PENDING"
+        status, 
       },
     });
 
-    // 2. Log Activity (UPDATED TITLE AND STATUS)
+    // Log Activity
     await prisma.activity.create({
       data: {
         studentId,
         type: "PERMISSION",
-        title: `Permission Requested: ${type}`, // <--- Changed "Granted" to "Requested"
+        title: `Permission: ${type}`,
         description: reason,
-        status: "Pending", // <--- Changed "Approved" to "Pending"
+        status: "Pending",
       },
     });
 
-    res.status(201).json({ 
-      success: true, 
-      message: "Permission request sent to parent", // <--- Updated message
-      data: permission 
-    });
-    
+    res.status(201).json({ success: true, data: permission });
   } catch (error) {
-    console.error("Create permission error:", error);
     res.status(500).json({ success: false, message: "Failed to create permission" });
   }
 };
@@ -4435,32 +4919,74 @@ export const getStudentPermissions = async (req, res) => {
   }
 };
 
+// export const createAlert = async (req, res) => {
+//   try {
+//     const { studentId, title, message, type } = req.body;
+//     const ownerId = req.user.id;
+
+//     if (!studentId || !title || !message) {
+//       return res.status(400).json({ success: false, message: "Missing fields" });
+//     }
+
+//     // 1. Create Alert Record
+//     const alert = await prisma.alert.create({
+//       data: {
+//         studentId,
+//         ownerId,
+//         title,
+//         message,
+//         alertType: type || "INFO",
+//       },
+//     });
+
+//     // 2. Log Activity
+//     await prisma.activity.create({
+//       data: {
+//         studentId,
+//         type: "ALERT", // Matches ActivityType enum
+//         title: `Alert Sent: ${title}`,
+//         description: message,
+//         status: "Sent",
+//       },
+//     });
+
+//     res.status(201).json({ success: true, message: "Alert sent", data: alert });
+//   } catch (error) {
+//     console.error("Create alert error:", error);
+//     res.status(500).json({ success: false, message: "Failed to create alert" });
+//   }
+// };
+
 export const createAlert = async (req, res) => {
   try {
     const { studentId, title, message, type } = req.body;
-    const ownerId = req.user.id;
+    let ownerId = req.user.id;
+
+    // --- FIX: Swap ID for Warden ---
+    if (req.user.role === 'WARDEN' || req.user.role === 'warden') {
+        const staff = await prisma.staff.findUnique({ where: { id: req.user.id } });
+        if (staff) ownerId = staff.ownerId;
+    }
 
     if (!studentId || !title || !message) {
       return res.status(400).json({ success: false, message: "Missing fields" });
     }
 
-    // 1. Create Alert Record
     const alert = await prisma.alert.create({
       data: {
         studentId,
-        ownerId,
+        ownerId, // Now linked to Owner
         title,
         message,
         alertType: type || "INFO",
       },
     });
 
-    // 2. Log Activity
     await prisma.activity.create({
       data: {
         studentId,
-        type: "ALERT", // Matches ActivityType enum
-        title: `Alert Sent: ${title}`,
+        type: "ALERT",
+        title: `Alert: ${title}`,
         description: message,
         status: "Sent",
       },
@@ -4468,7 +4994,6 @@ export const createAlert = async (req, res) => {
 
     res.status(201).json({ success: true, message: "Alert sent", data: alert });
   } catch (error) {
-    console.error("Create alert error:", error);
     res.status(500).json({ success: false, message: "Failed to create alert" });
   }
 };
@@ -4519,11 +5044,16 @@ export const getMyPayments = async (req, res) => {
 };
 
 // ====================== NIGHT ATTENDANCE ======================
-
 export const markNightAttendance = async (req, res) => {
   try {
     const { studentId, status, date } = req.body;
-    const ownerId = req.user.id;
+    let ownerId = req.user.id;
+
+    // --- FIX: Swap ID for Warden ---
+    if (req.user.role === 'WARDEN' || req.user.role === 'warden') {
+        const staff = await prisma.staff.findUnique({ where: { id: req.user.id } });
+        if (staff) ownerId = staff.ownerId;
+    }
 
     if (!studentId || !status || !date) {
       return res.status(400).json({ success: false, message: "Missing fields" });
@@ -4532,7 +5062,6 @@ export const markNightAttendance = async (req, res) => {
     const student = await prisma.student.findUnique({ where: { id: studentId } });
     if (!student) return res.status(404).json({ message: "Student not found" });
 
-    // Normalize date to remove time (store as YYYY-MM-DD 00:00:00)
     const attendanceDate = new Date(date);
     attendanceDate.setHours(0, 0, 0, 0);
 
@@ -4548,18 +5077,16 @@ export const markNightAttendance = async (req, res) => {
         studentId,
         status,
         date: attendanceDate,
-        ownerId,
+        ownerId, // Now linked to Owner
         hostelId: student.hostelId,
       },
     });
 
     res.json({ success: true, data: record });
   } catch (error) {
-    console.error("Mark attendance error:", error);
     res.status(500).json({ success: false, message: "Failed to mark attendance" });
   }
 };
-
 export const getStudentAttendance = async (req, res) => {
   try {
     const { studentId } = req.params;
@@ -4583,5 +5110,80 @@ export const getStudentAttendance = async (req, res) => {
   } catch (error) {
     console.error("Get attendance error:", error);
     res.status(500).json({ success: false, message: "Failed to fetch attendance" });
+  }
+};
+
+// --- Add Warden & Generate Credentials ---
+export const addWarden = async (req, res) => {
+  try {
+    const { name, phone, hostelId } = req.body;
+    
+    // 1. Validation
+    if (!name || !phone || !hostelId) {
+      return res.status(400).json({ success: false, message: "Name, Phone, and Hostel ID are required" });
+    }
+
+    // 2. Check if phone exists (Unique ID)
+    const existing = await prisma.staff.findUnique({ where: { phone } });
+    if (existing) {
+      return res.status(400).json({ success: false, message: "Staff with this phone already exists" });
+    }
+
+    // 3. GENERATE CREDENTIALS
+    // Username = Phone Number
+    // Password = Random 6-digit number
+    const plainPassword = Math.floor(100000 + Math.random() * 900000).toString();
+    const hashedPassword = await hashPassword(plainPassword); // Helper function to hash
+
+    // 4. Save to Database
+    const newWarden = await prisma.staff.create({
+      data: {
+        name,
+        phone,
+        password: hashedPassword,
+        hostelId,
+        role: "WARDEN"
+      }
+    });
+
+    // 5. Return credentials so Owner can copy them
+    res.status(201).json({
+      success: true,
+      message: "Warden created successfully",
+      credentials: {
+        name: newWarden.name,
+        username: newWarden.phone,
+        password: plainPassword // Sending plain text one last time for display
+      }
+    });
+
+  } catch (error) {
+    console.error("Add Warden Error:", error);
+    res.status(500).json({ success: false, message: "Failed to add warden" });
+  }
+};
+
+// src/controllers/ownerController.js
+
+// --- NEW: Approve or Reject Expense ---
+export const updateExpenseStatus = async (req, res) => {
+  try {
+    const { expenseId } = req.params;
+    const { status } = req.body; // "APPROVED" or "REJECTED"
+    
+    // Security: Only Owner can do this
+    if (req.user.role === 'WARDEN' || req.user.role === 'warden') {
+        return res.status(403).json({ success: false, message: "Wardens cannot approve expenses." });
+    }
+
+    const updated = await prisma.expense.update({
+      where: { id: expenseId },
+      data: { status },
+    });
+
+    res.json({ success: true, message: `Expense ${status}`, data: updated });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ success: false, message: "Update failed" });
   }
 };

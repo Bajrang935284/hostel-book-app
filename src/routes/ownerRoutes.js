@@ -118,6 +118,158 @@
 
 // export default router;
 
+// import express from 'express';
+// import { 
+//   // Auth & Global
+//   ownerRegister, 
+//   ownerLogin, 
+//   getOwnerProfile,
+//   registerHostel,
+//   getMyHostels,
+//   getHostelById,
+
+//   // Student Management
+//   registerStudent,
+//   getMyStudents,
+//   getStudentById,
+//   collectStudentFee,
+//   getStudentFeeDetails,
+
+//   // Staff Management
+//   registerStaff,
+//   getMyStaff,
+//   getStaffById,
+//   updateStaff,
+//   deleteStaff,
+//   updateStaffSalary,
+//   getStaffStats,
+
+//   // Expense Management
+//   addExpense,
+//   getExpenses,
+//   updateExpense,
+//   deleteExpense,
+
+//   // Salary Payments
+//   recordSalaryPayment,
+//   getSalaryPayments,
+
+//   // Borrowing/Loans
+//   recordStudentBorrowing,
+//   getStudentBorrowings,
+//   updateBorrowingStatus,
+//   deleteBorrowing,
+
+//   // Accounting & Reports
+//   getMonthlyAccountingReport,
+//   getYearlyAccountingReport,
+//   getDashboardSummary,
+
+//   createPermission,
+//   getStudentPermissions,
+//   createAlert,
+//   getStudentAlerts,
+//   getMyPayments,
+
+  
+
+//   // REMOVED old attendance imports from here to avoid conflicts
+// } from '../controllers/ownerController.js';
+
+// import { addWarden } from '../controllers/wardenController.js';
+
+// // ✅ Import Attendance functions ONLY from here
+// import { markAttendance, getStudentAttendance } from '../controllers/attendanceController.js';
+
+// import { authenticate } from '../middlewares/authMiddleware.js';
+// import { authorizeRole } from '../middlewares/roleMiddleware.js';
+// import { requireHostelSelection } from '../middlewares/hostelMiddleware.js';
+
+// const router = express.Router();
+
+// // ============================================================================
+// // 1. GLOBAL ROUTES 
+// // (No Hostel Selection Required)
+// // ============================================================================
+
+// // Authentication
+// router.post('/register', ownerRegister);
+// router.post('/login', ownerLogin);
+// router.get('/profile', authenticate, authorizeRole('owner'), getOwnerProfile);
+
+// // Hostel Creation & Listing
+
+
+// router.post('/hostels', authenticate, authorizeRole('owner'), registerHostel);
+// router.get('/hostels', authenticate, authorizeRole('owner'), getMyHostels);
+// router.get('/hostels/:hostelId', authenticate, authorizeRole('owner'), getHostelById);
+
+// // ============================================================================
+// // 2. SCOPED ROUTES 
+// // (Require 'x-hostel-id' Header & requireHostelSelection Middleware)
+// // ============================================================================
+
+// // Apply middleware to all routes defined BELOW this line
+// router.use(authenticate, authorizeRole('owner'), requireHostelSelection);
+
+// // --- DASHBOARD ---
+// router.get('/dashboard', getDashboardSummary);
+
+// // --- STUDENT MANAGEMENT ---
+// router.post('/students', registerStudent);
+// router.get('/students', getMyStudents);
+// router.get('/payments', getMyPayments);
+// router.get('/students/:studentId/fee-details', getStudentFeeDetails); 
+// router.get('/students/:studentId', getStudentById);
+// router.post('/collect-fee', collectStudentFee);
+
+// // --- STAFF MANAGEMENT ---
+// router.post('/warden/add', addWarden);
+// router.post('/staff', registerStaff);
+// router.get('/staff', getMyStaff);
+// router.get('/staff/stats', getStaffStats);
+// router.get('/staff/:staffId', getStaffById);
+// router.put('/staff/:staffId', updateStaff);
+// router.patch('/staff/:staffId/salary', updateStaffSalary);
+// router.delete('/staff/:staffId', deleteStaff);
+
+// // --- EXPENSE MANAGEMENT ---
+// router.post('/expenses', addExpense);
+// router.get('/expenses', getExpenses);
+// router.put('/expenses/:expenseId', updateExpense);
+// router.delete('/expenses/:expenseId', deleteExpense);
+
+// // --- SALARY PAYMENTS ---
+// router.post('/salary-payments', recordSalaryPayment);
+// router.get('/salary-payments', getSalaryPayments);
+
+// // --- STUDENT BORROWING ---
+// router.post('/borrowings', recordStudentBorrowing);
+// router.get('/borrowings', getStudentBorrowings);
+// router.patch('/borrowings/:borrowingId', updateBorrowingStatus);
+// router.delete('/borrowings/:borrowingId', deleteBorrowing);
+
+// // --- ACCOUNTING REPORTS ---
+// router.get('/accounting/monthly', getMonthlyAccountingReport);
+// router.get('/accounting/yearly', getYearlyAccountingReport);
+
+// // --- PERMISSIONS ---
+// router.post('/permissions', createPermission);
+// router.get('/students/:studentId/permissions', getStudentPermissions);
+
+// // --- ALERTS ---
+// router.post('/alerts', createAlert);
+// router.get('/students/:studentId/alerts', getStudentAlerts);
+
+// // --- ATTENDANCE (Updated) ---
+// router.post('/attendance', markAttendance);
+// router.get('/students/:studentId/attendance', getStudentAttendance);
+
+
+
+// export default router;
+
+
 import express from 'express';
 import { 
   // Auth & Global
@@ -170,11 +322,12 @@ import {
   createAlert,
   getStudentAlerts,
   getMyPayments,
+  updateExpenseStatus
 
-  // REMOVED old attendance imports from here to avoid conflicts
 } from '../controllers/ownerController.js';
 
-// ✅ Import Attendance functions ONLY from here
+import { addWarden } from '../controllers/wardenController.js';
+
 import { markAttendance, getStudentAttendance } from '../controllers/attendanceController.js';
 
 import { authenticate } from '../middlewares/authMiddleware.js';
@@ -191,25 +344,28 @@ const router = express.Router();
 // Authentication
 router.post('/register', ownerRegister);
 router.post('/login', ownerLogin);
-router.get('/profile', authenticate, authorizeRole('owner'), getOwnerProfile);
+router.get('/profile', authenticate, authorizeRole('owner', 'warden'), getOwnerProfile);
 
 // Hostel Creation & Listing
+// Only Owner can CREATE a hostel
 router.post('/hostels', authenticate, authorizeRole('owner'), registerHostel);
-router.get('/hostels', authenticate, authorizeRole('owner'), getMyHostels);
-router.get('/hostels/:hostelId', authenticate, authorizeRole('owner'), getHostelById);
+
+// FIX 1: Allow Warden to fetch their assigned hostel
+router.get('/hostels', authenticate, authorizeRole('owner', 'warden'), getMyHostels);
+router.get('/hostels/:hostelId', authenticate, authorizeRole('owner', 'warden'), getHostelById);
 
 // ============================================================================
 // 2. SCOPED ROUTES 
 // (Require 'x-hostel-id' Header & requireHostelSelection Middleware)
 // ============================================================================
 
-// Apply middleware to all routes defined BELOW this line
-router.use(authenticate, authorizeRole('owner'), requireHostelSelection);
+// FIX 2: Open the main gate for both OWNER and WARDEN
+router.use(authenticate, authorizeRole('owner', 'warden'), requireHostelSelection);
 
 // --- DASHBOARD ---
 router.get('/dashboard', getDashboardSummary);
 
-// --- STUDENT MANAGEMENT ---
+// --- STUDENT MANAGEMENT (Shared Access) ---
 router.post('/students', registerStudent);
 router.get('/students', getMyStudents);
 router.get('/payments', getMyPayments);
@@ -218,23 +374,27 @@ router.get('/students/:studentId', getStudentById);
 router.post('/collect-fee', collectStudentFee);
 
 // --- STAFF MANAGEMENT ---
-router.post('/staff', registerStaff);
-router.get('/staff', getMyStaff);
-router.get('/staff/stats', getStaffStats);
+// Only Owner should add Wardens
+router.post('/warden/add', authorizeRole('owner'), addWarden);
+
+// General Staff routes
+router.post('/staff', authorizeRole('owner'), registerStaff); // Usually only owner adds staff
+router.get('/staff', getMyStaff); // Warden can view staff
+router.get('/staff/stats', authorizeRole('owner'), getStaffStats);
 router.get('/staff/:staffId', getStaffById);
-router.put('/staff/:staffId', updateStaff);
-router.patch('/staff/:staffId/salary', updateStaffSalary);
-router.delete('/staff/:staffId', deleteStaff);
+router.put('/staff/:staffId', authorizeRole('owner'), updateStaff);
+router.patch('/staff/:staffId/salary', authorizeRole('owner'), updateStaffSalary);
+router.delete('/staff/:staffId', authorizeRole('owner'), deleteStaff);
 
 // --- EXPENSE MANAGEMENT ---
-router.post('/expenses', addExpense);
+router.post('/expenses', addExpense); // Warden needs this to submit bills
 router.get('/expenses', getExpenses);
 router.put('/expenses/:expenseId', updateExpense);
 router.delete('/expenses/:expenseId', deleteExpense);
 
-// --- SALARY PAYMENTS ---
-router.post('/salary-payments', recordSalaryPayment);
-router.get('/salary-payments', getSalaryPayments);
+// --- SALARY PAYMENTS (Owner Only) ---
+router.post('/salary-payments', authorizeRole('owner'), recordSalaryPayment);
+router.get('/salary-payments', authorizeRole('owner'), getSalaryPayments);
 
 // --- STUDENT BORROWING ---
 router.post('/borrowings', recordStudentBorrowing);
@@ -242,9 +402,9 @@ router.get('/borrowings', getStudentBorrowings);
 router.patch('/borrowings/:borrowingId', updateBorrowingStatus);
 router.delete('/borrowings/:borrowingId', deleteBorrowing);
 
-// --- ACCOUNTING REPORTS ---
-router.get('/accounting/monthly', getMonthlyAccountingReport);
-router.get('/accounting/yearly', getYearlyAccountingReport);
+// --- ACCOUNTING REPORTS (Owner Only) ---
+router.get('/accounting/monthly', authorizeRole('owner'), getMonthlyAccountingReport);
+router.get('/accounting/yearly', authorizeRole('owner'), getYearlyAccountingReport);
 
 // --- PERMISSIONS ---
 router.post('/permissions', createPermission);
@@ -254,8 +414,10 @@ router.get('/students/:studentId/permissions', getStudentPermissions);
 router.post('/alerts', createAlert);
 router.get('/students/:studentId/alerts', getStudentAlerts);
 
-// --- ATTENDANCE (Updated) ---
+// --- ATTENDANCE ---
 router.post('/attendance', markAttendance);
 router.get('/students/:studentId/attendance', getStudentAttendance);
 
+
+router.patch('/expenses/:expenseId/status', authenticate, authorizeRole('owner'), updateExpenseStatus);
 export default router;
