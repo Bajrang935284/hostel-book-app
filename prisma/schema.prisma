@@ -416,18 +416,24 @@ model Student {
   parentName  String
   parentPhone String
   parentEmail String?
-
-  // ✅ NEW
+  
+  // Contact & Financial
   secondaryPhone  String?
   securityDeposit Float?
-
+  
+  // Accommodation
   roomNumber  String?
   bedNumber   String?
   monthlyFee Float
-
   feeDueDate    Int      @default(1)
+  
+  // Dates
   admissionDate DateTime @default(now())
-
+  exitDate      DateTime? // When student left/was terminated
+  
+  // Status Management
+  status String @default("ACTIVE") // ACTIVE, SUSPENDED, ALUMNI
+  
   notes     String?
   ownerId   String
   hostelId  String
@@ -448,6 +454,7 @@ model Student {
 
   @@map("students")
 }
+
 // model Staff {
 //   id                   String   @id @default(uuid())
 //   name                 String
@@ -651,6 +658,7 @@ enum ActivityType {
   ALERT
   HEALTH
   GENERAL
+  STATUS_CHANGE
 }
 
 model FeeRecord {

@@ -286,7 +286,10 @@ import {
   getStudentById,
   collectStudentFee,
   getStudentFeeDetails,
+ updateStudent,
 
+ updateStudentStatus,  // NEW
+  getAlumniStudents, // NEW
   // Staff Management
   registerStaff,
   getMyStaff,
@@ -322,7 +325,8 @@ import {
   createAlert,
   getStudentAlerts,
   getMyPayments,
-  updateExpenseStatus
+  updateExpenseStatus,
+  getDuesReport
 
 } from '../controllers/ownerController.js';
 
@@ -372,6 +376,10 @@ router.get('/payments', getMyPayments);
 router.get('/students/:studentId/fee-details', getStudentFeeDetails); 
 router.get('/students/:studentId', getStudentById);
 router.post('/collect-fee', collectStudentFee);
+router.put('/students/:studentId', updateStudent);
+router.patch('/students/:studentId/status', updateStudentStatus);
+router.get('/students/alumni', getAlumniStudents);
+router.get('/dues-report',getDuesReport);
 
 // --- STAFF MANAGEMENT ---
 // Only Owner should add Wardens

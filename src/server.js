@@ -14,9 +14,9 @@ const app = express();
 
 
 app.use(cors({
-  origin: '*', // Allow requests from any frontend (Browser, App, etc.)
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  origin: '*', // Allow all origins (for development)
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-hostel-id'] // <--- ADD THIS!
 }));
 // Middleware
 

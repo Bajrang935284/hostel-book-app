@@ -3626,30 +3626,250 @@ export const registerStudent = async (req, res) => {
 
 // src/controllers/ownerController.js
 
+
+// Add this to your ownerController.js
+
+// ====================== UPDATE STUDENT ======================
+export const updateStudent = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const {
+      name,
+      parentName,
+      parentPhone,
+      parentEmail,
+      secondaryPhone,
+      securityDeposit,
+      roomNumber,
+      bedNumber,
+      monthlyFee,
+      feeDueDate,
+      admissionDate,
+      notes,
+    } = req.body;
+
+    // --- DETERMINE REAL OWNER (SAME AS REGISTER) ---
+    let ownerId = req.user.id;
+
+    if (req.user.role === 'WARDEN' || req.user.role === 'warden') {
+      const staff = await prisma.staff.findUnique({ 
+        where: { id: req.user.id } 
+      });
+      
+      if (!staff) {
+        return res.status(401).json({ success: false, message: "Unauthorized Staff." });
+      }
+      
+      ownerId = staff.ownerId;
+    }
+
+    // --- VALIDATION ---
+    if (!name || !parentName || !parentPhone || !monthlyFee) {
+      return res.status(400).json({
+        success: false,
+        message: "Required fields missing.",
+      });
+    }
+
+    // Validate phone numbers
+    if (!/^\d{10}$/.test(parentPhone)) {
+      return res.status(400).json({
+        success: false,
+        message: "Primary phone must be 10 digits.",
+      });
+    }
+
+    if (secondaryPhone && !/^\d{10}$/.test(secondaryPhone)) {
+      return res.status(400).json({
+        success: false,
+        message: "Secondary phone must be 10 digits.",
+      });
+    }
+
+    // Validate security deposit
+    if (securityDeposit && isNaN(Number(securityDeposit))) {
+      return res.status(400).json({
+        success: false,
+        message: "Security deposit must be a valid number.",
+      });
+    }
+
+    // --- VERIFY STUDENT OWNERSHIP ---
+    const existingStudent = await prisma.student.findFirst({
+      where: { id: studentId, ownerId },
+    });
+
+    if (!existingStudent) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found or access denied.",
+      });
+    }
+
+    // --- UPDATE STUDENT ---
+    const updatedStudent = await prisma.student.update({
+      where: { id: studentId },
+      data: {
+        name: name.trim(),
+        parentName: parentName.trim(),
+        parentPhone: parentPhone.trim(),
+        parentEmail: parentEmail?.trim() || null,
+        secondaryPhone: secondaryPhone?.trim() || null,
+        securityDeposit: securityDeposit ? parseFloat(securityDeposit) : null,
+        roomNumber: roomNumber?.trim() || null,
+        bedNumber: bedNumber?.trim() || null,
+        monthlyFee: parseFloat(monthlyFee),
+        feeDueDate: feeDueDate ? parseInt(feeDueDate) : 1,
+        admissionDate: admissionDate ? new Date(admissionDate) : existingStudent.admissionDate,
+        notes: notes?.trim() || null,
+        updatedAt: new Date(),
+      },
+      include: {
+        hostel: { select: { name: true } },
+        parent: { select: { username: true, phone: true } },
+      },
+    });
+
+    // --- OPTIONAL: Update Parent Record Too ---
+    if (existingStudent.parent) {
+      await prisma.parent.update({
+        where: { studentId },
+        data: {
+          name: parentName.trim(),
+          phone: parentPhone.trim(),
+          email: parentEmail?.trim() || null,
+        },
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Student updated successfully",
+      data: updatedStudent,
+    });
+
+  } catch (error) {
+    console.error("Update student error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update student.",
+    });
+  }
+};
+
+// export const getMyStudents = async (req, res) => {
+//   try {
+//     let ownerId = req.user.id;
+//     const { hostelId } = req.query; // Frontend sends this now!
+
+//     // --- FIX: DETECT WARDEN & SWAP ID ---
+//     const userRole = req.user.role ? req.user.role.toUpperCase() : '';
+
+//     if (userRole === 'WARDEN') {
+//        // 1. Get real Owner ID
+//        const staff = await prisma.staff.findUnique({ where: { id: req.user.id } });
+//        if (!staff) return res.status(401).json({ message: "Unauthorized Staff" });
+//        ownerId = staff.ownerId; 
+       
+//        // 2. SAFETY CHECK: Ensure Warden only sees THEIR hostel
+//        // If the frontend didn't send a hostelId, force it to the Warden's assigned hostel
+//        if (!hostelId) {
+//          // This forces the query to use the Warden's specific hostel
+//          // But usually, Step 2 (getMyHostels) fixes the frontend so hostelId is passed correctly.
+//        }
+//     }
+
+//     // Prepare Query
+//     const where = { ownerId, ...(hostelId && { hostelId }) };
+
+//     // --- FETCH STUDENTS ---
+//     const students = await prisma.student.findMany({
+//       where,
+//       include: {
+//         hostel: { select: { name: true } },
+//         parent: { select: { username: true, phone: true } },
+//         feeRecords: {
+//           where: { status: "PAID" },
+//           orderBy: [{ billingYear: "desc" }, { billingMonth: "desc" }],
+//         },
+//       },
+//       orderBy: { roomNumber: "asc" },
+//     });
+
+//     // --- CALCULATE DUES/STATUS (Your existing logic) ---
+//     const currentDate = new Date();
+//     const processedStudents = students.map((student) => {
+//       const admission = new Date(student.admissionDate);
+//       let pendingCount = 0;
+//       let checkDate = new Date(admission.getFullYear(), admission.getMonth(), 1);
+
+//       while (checkDate < new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1)) {
+//         const cMonth = checkDate.getMonth() + 1;
+//         const cYear = checkDate.getFullYear();
+//         const isPaid = student.feeRecords.some((r) => r.billingMonth === cMonth && r.billingYear === cYear);
+
+//         if (!isPaid) {
+//           if (cMonth === currentDate.getMonth() + 1 && cYear === currentDate.getFullYear()) {
+//             if (currentDate.getDate() > student.feeDueDate) pendingCount++;
+//           } else {
+//             pendingCount++;
+//           }
+//         }
+//         checkDate.setMonth(checkDate.getMonth() + 1);
+//       }
+
+//       let status = "PAID";
+//       let color = "green";
+//       let message = "Up to date";
+
+//       if (pendingCount > 0) {
+//         status = "OVERDUE";
+//         color = "red";
+//         message = `${pendingCount} Month${pendingCount > 1 ? "s" : ""} Due`;
+//       } else {
+//         const today = currentDate.getDate();
+//         if (today <= student.feeDueDate) {
+//           status = "UPCOMING";
+//           color = "orange";
+//           message = "Due Soon";
+//         }
+//       }
+
+//       return {
+//         ...student,
+//         feeStatus: { status, message, color, pendingCount },
+//       };
+//     });
+
+//     res.json({ success: true, data: processedStudents });
+
+//   } catch (error) {
+//     console.error("Get students error:", error);
+//     res.status(500).json({ success: false, message: "Failed to fetch students." });
+//   }
+// };
+
+
 export const getMyStudents = async (req, res) => {
   try {
     let ownerId = req.user.id;
-    const { hostelId } = req.query; // Frontend sends this now!
+    const { hostelId, includeInactive } = req.query; // Add includeInactive param
 
-    // --- FIX: DETECT WARDEN & SWAP ID ---
+    // --- DETECT WARDEN & SWAP ID ---
     const userRole = req.user.role ? req.user.role.toUpperCase() : '';
-
     if (userRole === 'WARDEN') {
-       // 1. Get real Owner ID
        const staff = await prisma.staff.findUnique({ where: { id: req.user.id } });
        if (!staff) return res.status(401).json({ message: "Unauthorized Staff" });
        ownerId = staff.ownerId; 
-       
-       // 2. SAFETY CHECK: Ensure Warden only sees THEIR hostel
-       // If the frontend didn't send a hostelId, force it to the Warden's assigned hostel
-       if (!hostelId) {
-         // This forces the query to use the Warden's specific hostel
-         // But usually, Step 2 (getMyHostels) fixes the frontend so hostelId is passed correctly.
-       }
     }
 
-    // Prepare Query
-    const where = { ownerId, ...(hostelId && { hostelId }) };
+    // Prepare Query - ONLY ACTIVE STUDENTS BY DEFAULT
+    const where = { 
+      ownerId, 
+      ...(hostelId && { hostelId }),
+      // Only show ACTIVE students unless explicitly requested
+      ...(includeInactive !== 'true' && { status: 'ACTIVE' })
+    };
 
     // --- FETCH STUDENTS ---
     const students = await prisma.student.findMany({
@@ -3717,6 +3937,7 @@ export const getMyStudents = async (req, res) => {
     res.status(500).json({ success: false, message: "Failed to fetch students." });
   }
 };
+
 // export const getStudentById = async (req, res) => {
 //   try {
 //     const { studentId } = req.params;
@@ -3742,6 +3963,95 @@ export const getMyStudents = async (req, res) => {
 //       .json({ success: false, message: "Failed to fetch student." });
 //   }
 // };
+
+// ====================== GET DUES REPORT ======================
+export const getDuesReport = async (req, res) => {
+  try {
+    let ownerId = req.user.id;
+    const { year } = req.query;
+    
+    // Handle Warden
+    if (req.user.role === 'WARDEN' || req.user.role === 'warden') {
+      const staff = await prisma.staff.findUnique({ where: { id: req.user.id } });
+      if (!staff) return res.status(401).json({ message: "Unauthorized Staff" });
+      ownerId = staff.ownerId;
+    }
+
+    const targetYear = year ? parseInt(year) : new Date().getFullYear();
+    
+    // Fetch all ACTIVE students
+    const students = await prisma.student.findMany({
+      where: { 
+        ownerId,
+        status: 'ACTIVE' // Only active students have pending dues
+      },
+      include: {
+        feeRecords: {
+          where: { status: "PAID" },
+        },
+      },
+    });
+
+    // Calculate dues by month
+    const monthlyDues = Array(12).fill(0).map((_, monthIndex) => ({
+      month: monthIndex + 1,
+      totalDue: 0,
+      studentCount: 0
+    }));
+
+    const currentDate = new Date();
+    
+    students.forEach((student) => {
+      const admissionDate = new Date(student.admissionDate);
+      
+      // Check each month of the target year
+      for (let month = 1; month <= 12; month++) {
+        const checkDate = new Date(targetYear, month - 1, 1);
+        
+        // Only check if:
+        // 1. Month is after admission date
+        // 2. Month is not in the future (for current year)
+        if (checkDate < admissionDate) continue;
+        if (targetYear === currentDate.getFullYear() && month > currentDate.getMonth() + 1) continue;
+        
+        // Check if this month is paid
+        const isPaid = student.feeRecords.some(
+          (r) => r.billingMonth === month && r.billingYear === targetYear
+        );
+        
+        if (!isPaid) {
+          // For current month, only count as due if past due date
+          if (targetYear === currentDate.getFullYear() && month === currentDate.getMonth() + 1) {
+            if (currentDate.getDate() > student.feeDueDate) {
+              monthlyDues[month - 1].totalDue += student.monthlyFee;
+              monthlyDues[month - 1].studentCount += 1;
+            }
+          } else if (checkDate < currentDate) {
+            // Past months that are unpaid
+            monthlyDues[month - 1].totalDue += student.monthlyFee;
+            monthlyDues[month - 1].studentCount += 1;
+          }
+        }
+      }
+    });
+
+    const totalDues = monthlyDues.reduce((sum, m) => sum + m.totalDue, 0);
+
+    res.json({
+      success: true,
+      data: {
+        year: targetYear,
+        monthlyDues,
+        totalDues,
+        totalStudents: students.length
+      }
+    });
+
+  } catch (error) {
+    console.error("Get dues report error:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch dues report." });
+  }
+};
 
 export const getStudentById = async (req, res) => {
   try {
@@ -3772,6 +4082,114 @@ export const getStudentById = async (req, res) => {
   }
 };
 
+
+export const updateStudentStatus = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const { status, reason, exitDate } = req.body;
+
+    // --- DETERMINE REAL OWNER ---
+    let ownerId = req.user.id;
+    if (req.user.role === 'WARDEN' || req.user.role === 'warden') {
+        const staff = await prisma.staff.findUnique({ where: { id: req.user.id } });
+        if (!staff) return res.status(401).json({ success: false, message: "Unauthorized Staff." });
+        ownerId = staff.ownerId; 
+    }
+
+    // Verify student exists and ownership
+    const student = await prisma.student.findFirst({
+      where: { id: studentId, ownerId },
+    });
+
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found or unauthorized.",
+      });
+    }
+
+    // Validate status
+    const validStatuses = ['ACTIVE', 'SUSPENDED', 'ALUMNI'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status. Must be ACTIVE, SUSPENDED, or ALUMNI.",
+      });
+    }
+
+    // Update student status
+    const updatedStudent = await prisma.student.update({
+      where: { id: studentId },
+      data: {
+        status,
+        exitDate: exitDate ? new Date(exitDate) : null,
+        notes: reason ? `${student.notes ? student.notes + '\n\n' : ''}Status changed to ${status}: ${reason}` : student.notes,
+        updatedAt: new Date(),
+      },
+    });
+
+    // Log activity
+    await prisma.activity.create({
+      data: {
+        studentId,
+        type: "STATUS_CHANGE",
+        title: `Status Changed to ${status}`,
+        description: reason || `Student status updated to ${status}`,
+        status: "Completed",
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Student status updated successfully",
+      data: updatedStudent,
+    });
+
+  } catch (error) {
+    console.error("Update student status error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update student status.",
+    });
+  }
+};
+
+
+export const getAlumniStudents = async (req, res) => {
+  try {
+    let ownerId = req.user.id;
+    const { hostelId } = req.query;
+
+    // --- DETECT WARDEN & SWAP ID ---
+    const userRole = req.user.role ? req.user.role.toUpperCase() : '';
+    if (userRole === 'WARDEN') {
+       const staff = await prisma.staff.findUnique({ where: { id: req.user.id } });
+       if (!staff) return res.status(401).json({ message: "Unauthorized Staff" });
+       ownerId = staff.ownerId; 
+    }
+
+    const where = { 
+      ownerId, 
+      status: 'ALUMNI',
+      ...(hostelId && { hostelId })
+    };
+
+    const alumniStudents = await prisma.student.findMany({
+      where,
+      include: {
+        hostel: { select: { name: true } },
+        parent: { select: { username: true, phone: true } },
+      },
+      orderBy: { exitDate: 'desc' },
+    });
+
+    res.json({ success: true, data: alumniStudents });
+
+  } catch (error) {
+    console.error("Get alumni error:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch alumni students." });
+  }
+};
 // ====================== FEE MANAGEMENT (UPDATED) ======================
 
 // --- NEW: Get Details for Fee Collection Dropdown ---
