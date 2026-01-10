@@ -4193,6 +4193,87 @@ export const getAlumniStudents = async (req, res) => {
 // ====================== FEE MANAGEMENT (UPDATED) ======================
 
 // --- NEW: Get Details for Fee Collection Dropdown ---
+// export const getStudentFeeDetails = async (req, res) => {
+//   try {
+//     const { studentId } = req.params;
+//     const ownerId = req.user.id;
+
+//     const student = await prisma.student.findFirst({
+//       where: { id: studentId, ownerId },
+//       include: {
+//         feeRecords: {
+//           orderBy: [{ billingYear: "desc" }, { billingMonth: "desc" }],
+//         },
+//       },
+//     });
+
+//     if (!student)
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "Student not found" });
+
+//     const pendingCycles = [];
+//     const admissionDate = new Date(student.admissionDate);
+//     const currentDate = new Date();
+
+//     // Normalize start date to first of admission month
+//     let checkDate = new Date(
+//       admissionDate.getFullYear(),
+//       admissionDate.getMonth(),
+//       1
+//     );
+
+//     const getMonthName = (d) => d.toLocaleString("default", { month: "long" });
+
+//     // Loop through all months since admission
+//     while (checkDate <= currentDate) {
+//       const checkMonth = checkDate.getMonth() + 1;
+//       const checkYear = checkDate.getFullYear();
+
+//       // Check if PAID record exists
+//       const isPaid = student.feeRecords.some(
+//         (r) =>
+//           r.billingMonth === checkMonth &&
+//           r.billingYear === checkYear &&
+//           r.status === "PAID"
+//       );
+
+//       if (!isPaid) {
+//         pendingCycles.push({
+//           month: checkMonth,
+//           year: checkYear,
+//           label: `${getMonthName(checkDate)} ${checkYear}`,
+//           amount: student.monthlyFee,
+//           isCurrentMonth:
+//             checkMonth === currentDate.getMonth() + 1 &&
+//             checkYear === currentDate.getFullYear(),
+//         });
+//       }
+//       checkDate.setMonth(checkDate.getMonth() + 1);
+//     }
+
+//     res.json({
+//       success: true,
+//       data: {
+//         studentDetails: {
+//           name: student.name,
+//           monthlyFee: student.monthlyFee,
+//           parentName: student.parentName,
+//           roomNumber: student.roomNumber,
+//         },
+//         pendingMonths: pendingCycles, // UI uses this for the Dropdown
+//         history: student.feeRecords,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Get fee details error:", error);
+//     res
+//       .status(500)
+//       .json({ success: false, message: "Failed to fetch fee details" });
+//   }
+// };
+
+
 export const getStudentFeeDetails = async (req, res) => {
   try {
     const { studentId } = req.params;
@@ -4230,25 +4311,38 @@ export const getStudentFeeDetails = async (req, res) => {
       const checkMonth = checkDate.getMonth() + 1;
       const checkYear = checkDate.getFullYear();
 
-      // Check if PAID record exists
-      const isPaid = student.feeRecords.some(
-        (r) =>
-          r.billingMonth === checkMonth &&
-          r.billingYear === checkYear &&
-          r.status === "PAID"
+      // 1. Find if a record exists for this specific month
+      const record = student.feeRecords.find(
+        (r) => r.billingMonth === checkMonth && r.billingYear === checkYear
       );
 
-      if (!isPaid) {
+      // 2. Calculate Due Amount
+      let dueAmount = student.monthlyFee; // Default: Full Fee is due
+
+      if (record) {
+        if (record.status === "PAID") {
+          dueAmount = 0; // Nothing due
+        } else {
+          // If PARTIAL or PENDING, subtract what has already been paid
+          // We use 'paidAmount' from your schema
+          const paidSoFar = record.paidAmount || 0;
+          dueAmount = Math.max(0, student.monthlyFee - paidSoFar);
+        }
+      }
+
+      // 3. If there is money left to pay, add to list
+      if (dueAmount > 0) {
         pendingCycles.push({
           month: checkMonth,
           year: checkYear,
           label: `${getMonthName(checkDate)} ${checkYear}`,
-          amount: student.monthlyFee,
+          amount: dueAmount, // <--- Sends REMAINING amount (e.g., 4000) instead of full fee
           isCurrentMonth:
             checkMonth === currentDate.getMonth() + 1 &&
             checkYear === currentDate.getFullYear(),
         });
       }
+      
       checkDate.setMonth(checkDate.getMonth() + 1);
     }
 
@@ -4261,7 +4355,7 @@ export const getStudentFeeDetails = async (req, res) => {
           parentName: student.parentName,
           roomNumber: student.roomNumber,
         },
-        pendingMonths: pendingCycles, // UI uses this for the Dropdown
+        pendingMonths: pendingCycles, 
         history: student.feeRecords,
       },
     });
@@ -4275,36 +4369,163 @@ export const getStudentFeeDetails = async (req, res) => {
 
 // --- UPDATED: Collect Fee with Transaction ---
 
-// --- 3. UPDATED: Collect Fee (Handles Borrowing Inclusion) ---
+// // --- 3. UPDATED: Collect Fee (Handles Borrowing Inclusion) ---
+// export const collectStudentFee = async (req, res) => {
+//   try {
+//     const {
+//       studentId,
+//       amount, // Total Amount (Fee + Borrowing)
+//       paymentDate,
+//       paymentMonth,
+//       paymentYear,
+//       paymentMethod,
+//       notes,
+//       borrowingIds, // Array of borrowing IDs to mark as repaid
+//     } = req.body;
+//     const ownerId = req.user.id;
+
+//     if (!studentId || !amount || !paymentMonth || !paymentYear) {
+//       return res.status(400).json({ success: false, message: "Missing required fields." });
+//     }
+
+//     const student = await prisma.student.findUnique({ where: { id: studentId } });
+//     if (!student) return res.status(404).json({ message: "Student not found" });
+
+//     const actualDate = paymentDate ? new Date(paymentDate) : new Date();
+    
+//     // Cycle Logic: Due date is based on the Billing Month + Student's Fee Due Day
+//     // e.g., If Billing Month is Jan (1) and Due Day is 5, Due Date = Jan 5th.
+//     const cycleDueDate = new Date(paymentYear, paymentMonth - 1, student.feeDueDate);
+
+//     const result = await prisma.$transaction(async (prisma) => {
+//       // A. Create Fee Payment Receipt (Records the TOTAL amount paid)
+//       const newPayment = await prisma.feePayment.create({
+//         data: {
+//           amount: parseFloat(amount),
+//           paymentDate: actualDate,
+//           paymentMonth: parseInt(paymentMonth),
+//           paymentYear: parseInt(paymentYear),
+//           paymentMethod: paymentMethod || "Cash",
+//           notes: notes || (borrowingIds?.length > 0 ? "Fee + Borrowing Repayment" : "Monthly Fee"),
+//           status: "Completed",
+//           studentId,
+//           ownerId,
+//           hostelId: student.hostelId,
+//         },
+//       });
+
+//       // B. Update Fee Record (Ledger)
+//       // We record the TOTAL amount here so the ledger shows the full money received for this cycle
+//       await prisma.feeRecord.upsert({
+//         where: {
+//           studentId_billingMonth_billingYear: {
+//             studentId,
+//             billingMonth: parseInt(paymentMonth),
+//             billingYear: parseInt(paymentYear),
+//           },
+//         },
+//         update: { 
+//             status: "PAID", 
+//             amount: parseFloat(amount), // Update with total paid
+//             paidDate: actualDate, 
+//             paymentMethod 
+//         },
+//         create: {
+//           studentId,
+//           amount: parseFloat(amount), // Record total paid
+//           billingMonth: parseInt(paymentMonth),
+//           billingYear: parseInt(paymentYear),
+//           dueDate: cycleDueDate,
+//           status: "PAID",
+//           paidDate: actualDate,
+//           paymentMethod,
+//           notes: "Collected via App",
+//         },
+//       });
+
+//       // C. Mark Borrowings as Repaid (CRITICAL STEP)
+//       if (borrowingIds && borrowingIds.length > 0) {
+//         await prisma.studentBorrowing.updateMany({
+//           where: { id: { in: borrowingIds } },
+//           data: { status: "Repaid" },
+//         });
+//       }
+
+//       // D. Activity Log
+//       await prisma.activity.create({
+//         data: {
+//           studentId,
+//           type: "PAYMENT",
+//           title: "Payment Received",
+//           description: `Received ₹${amount} for ${paymentMonth}/${paymentYear}`,
+//           amount: parseFloat(amount),
+//           status: "Completed",
+//         },
+//       });
+
+//       return newPayment;
+//     },
+//   {
+//       maxWait: 5000,
+//       timeout: 20000 
+//     });
+
+//     res.status(201).json({ success: true, data: result });
+//   } catch (error) {
+//     console.error(error);
+//     res.status(500).json({ success: false, message: "Failed to collect fee" });
+//   }
+// };
+
+// src/controllers/ownerController.js
+
+// 1. UPDATE EXISTING: collectStudentFee (Handle Partial Logic)
 export const collectStudentFee = async (req, res) => {
   try {
     const {
       studentId,
-      amount, // Total Amount (Fee + Borrowing)
+      amount,
       paymentDate,
       paymentMonth,
       paymentYear,
       paymentMethod,
       notes,
-      borrowingIds, // Array of borrowing IDs to mark as repaid
+      borrowingIds,
     } = req.body;
     const ownerId = req.user.id;
-
-    if (!studentId || !amount || !paymentMonth || !paymentYear) {
-      return res.status(400).json({ success: false, message: "Missing required fields." });
-    }
 
     const student = await prisma.student.findUnique({ where: { id: studentId } });
     if (!student) return res.status(404).json({ message: "Student not found" });
 
-    const actualDate = paymentDate ? new Date(paymentDate) : new Date();
+    // --- LOGIC FOR PARTIAL VS FULL ---
+    // Get existing record to check total due, or calculate from student.monthlyFee
+    const existingRecord = await prisma.feeRecord.findUnique({
+        where: {
+            studentId_billingMonth_billingYear: {
+                studentId,
+                billingMonth: parseInt(paymentMonth),
+                billingYear: parseInt(paymentYear)
+            }
+        }
+    });
+
+    const totalDueForCycle = existingRecord ? existingRecord.totalAmount : student.monthlyFee;
+    const previousPaid = existingRecord ? existingRecord.paidAmount : 0;
     
-    // Cycle Logic: Due date is based on the Billing Month + Student's Fee Due Day
-    // e.g., If Billing Month is Jan (1) and Due Day is 5, Due Date = Jan 5th.
-    const cycleDueDate = new Date(paymentYear, paymentMonth - 1, student.feeDueDate);
+    // New total paid for this cycle
+    const newTotalPaid = previousPaid + parseFloat(amount);
+    const remaining = totalDueForCycle - newTotalPaid;
+
+    // Determine Status
+    let status = "PAID";
+    if (remaining > 10) { // Tolerance of 10rs
+        status = "PARTIAL";
+    }
+
+    const actualDate = paymentDate ? new Date(paymentDate) : new Date();
 
     const result = await prisma.$transaction(async (prisma) => {
-      // A. Create Fee Payment Receipt (Records the TOTAL amount paid)
+      // 1. Create Receipt
       const newPayment = await prisma.feePayment.create({
         data: {
           amount: parseFloat(amount),
@@ -4312,7 +4533,7 @@ export const collectStudentFee = async (req, res) => {
           paymentMonth: parseInt(paymentMonth),
           paymentYear: parseInt(paymentYear),
           paymentMethod: paymentMethod || "Cash",
-          notes: notes || (borrowingIds?.length > 0 ? "Fee + Borrowing Repayment" : "Monthly Fee"),
+          notes: notes || (status === "PARTIAL" ? "Partial Payment" : "Fee Payment"),
           status: "Completed",
           studentId,
           ownerId,
@@ -4320,8 +4541,7 @@ export const collectStudentFee = async (req, res) => {
         },
       });
 
-      // B. Update Fee Record (Ledger)
-      // We record the TOTAL amount here so the ledger shows the full money received for this cycle
+      // 2. Update/Create Fee Ledger
       await prisma.feeRecord.upsert({
         where: {
           studentId_billingMonth_billingYear: {
@@ -4331,25 +4551,27 @@ export const collectStudentFee = async (req, res) => {
           },
         },
         update: { 
-            status: "PAID", 
-            amount: parseFloat(amount), // Update with total paid
-            paidDate: actualDate, 
+            status: status, 
+            paidAmount: newTotalPaid,
+            remainingAmount: remaining > 0 ? remaining : 0,
+            lastPaymentDate: actualDate,
             paymentMethod 
         },
         create: {
           studentId,
-          amount: parseFloat(amount), // Record total paid
+          totalAmount: totalDueForCycle, 
+          paidAmount: parseFloat(amount),
+          remainingAmount: remaining > 0 ? remaining : 0,
           billingMonth: parseInt(paymentMonth),
           billingYear: parseInt(paymentYear),
-          dueDate: cycleDueDate,
-          status: "PAID",
-          paidDate: actualDate,
+          status: status,
+          lastPaymentDate: actualDate,
           paymentMethod,
           notes: "Collected via App",
         },
       });
 
-      // C. Mark Borrowings as Repaid (CRITICAL STEP)
+      // 3. Mark Borrowings
       if (borrowingIds && borrowingIds.length > 0) {
         await prisma.studentBorrowing.updateMany({
           where: { id: { in: borrowingIds } },
@@ -4357,20 +4579,8 @@ export const collectStudentFee = async (req, res) => {
         });
       }
 
-      // D. Activity Log
-      await prisma.activity.create({
-        data: {
-          studentId,
-          type: "PAYMENT",
-          title: "Payment Received",
-          description: `Received ₹${amount} for ${paymentMonth}/${paymentYear}`,
-          amount: parseFloat(amount),
-          status: "Completed",
-        },
-      });
-
       return newPayment;
-    });
+    }, { timeout: 20000 });
 
     res.status(201).json({ success: true, data: result });
   } catch (error) {
@@ -4378,6 +4588,168 @@ export const collectStudentFee = async (req, res) => {
     res.status(500).json({ success: false, message: "Failed to collect fee" });
   }
 };
+
+// 2. NEW FUNCTION: collectAdvanceFee
+export const collectAdvanceFee = async (req, res) => {
+    try {
+        const { studentId, totalAmount, paymentMethod, notes } = req.body;
+        const ownerId = req.user.id;
+
+        const student = await prisma.student.findUnique({ 
+            where: { id: studentId },
+            include: { 
+                feeRecords: { 
+                    orderBy: [{ billingYear: 'desc' }, { billingMonth: 'desc' }],
+                    take: 1
+                } 
+            }
+        });
+
+        if (!student) return res.status(404).json({ message: "Student not found" });
+
+        // Calculate Start Month (Next month after last record, or current month if none)
+        let currentMonth, currentYear;
+        
+        if (student.feeRecords.length > 0) {
+            const lastRecord = student.feeRecords[0];
+            if (lastRecord.status === 'PAID') {
+                // Start from next month
+                if (lastRecord.billingMonth === 12) {
+                    currentMonth = 1;
+                    currentYear = lastRecord.billingYear + 1;
+                } else {
+                    currentMonth = lastRecord.billingMonth + 1;
+                    currentYear = lastRecord.billingYear;
+                }
+            } else {
+                // Resume from current partial/pending month
+                currentMonth = lastRecord.billingMonth;
+                currentYear = lastRecord.billingYear;
+            }
+        } else {
+            const today = new Date();
+            currentMonth = today.getMonth() + 1;
+            currentYear = today.getFullYear();
+        }
+
+        let moneyLeft = parseFloat(totalAmount);
+        const monthlyFee = student.monthlyFee;
+        const processedRecords = [];
+
+        // Transaction for bulk insert
+        await prisma.$transaction(async (prisma) => {
+            
+            // 1. Create one big payment receipt for the advance
+            await prisma.feePayment.create({
+                data: {
+                    amount: moneyLeft,
+                    paymentDate: new Date(),
+                    paymentMonth: currentMonth, // Marking start month
+                    paymentYear: currentYear,
+                    paymentMethod: paymentMethod || "Cash",
+                    notes: `Advance Payment (Bulk): ${notes || ''}`,
+                    status: "Completed",
+                    studentId,
+                    ownerId,
+                    hostelId: student.hostelId,
+                }
+            });
+
+            // 2. Loop to create Fee Records
+            while (moneyLeft > 0) {
+                // Check if record exists (for the partial resumption case)
+                const existing = await prisma.feeRecord.findUnique({
+                    where: {
+                        studentId_billingMonth_billingYear: {
+                            studentId,
+                            billingMonth: currentMonth,
+                            billingYear: currentYear
+                        }
+                    }
+                });
+
+                let amountToPayForThisMonth = monthlyFee;
+                let alreadyPaid = 0;
+
+                if (existing) {
+                    alreadyPaid = existing.paidAmount;
+                    amountToPayForThisMonth = existing.totalAmount - existing.paidAmount;
+                }
+
+                // Determine how much we can pay for this month
+                let paymentForCycle = 0;
+                if (moneyLeft >= amountToPayForThisMonth) {
+                    paymentForCycle = amountToPayForThisMonth;
+                    moneyLeft -= amountToPayForThisMonth;
+                } else {
+                    paymentForCycle = moneyLeft;
+                    moneyLeft = 0;
+                }
+
+                const newTotalPaid = alreadyPaid + paymentForCycle;
+                const newRemaining = monthlyFee - newTotalPaid;
+                const status = newRemaining <= 10 ? "PAID" : "PARTIAL";
+
+                await prisma.feeRecord.upsert({
+                    where: {
+                        studentId_billingMonth_billingYear: {
+                            studentId,
+                            billingMonth: currentMonth,
+                            billingYear: currentYear
+                        }
+                    },
+                    update: {
+                        status,
+                        paidAmount: newTotalPaid,
+                        remainingAmount: newRemaining,
+                        lastPaymentDate: new Date(),
+                        paymentMethod
+                    },
+                    create: {
+                        studentId,
+                        totalAmount: monthlyFee,
+                        paidAmount: newTotalPaid,
+                        remainingAmount: newRemaining,
+                        billingMonth: currentMonth,
+                        billingYear: currentYear,
+                        status,
+                        lastPaymentDate: new Date(),
+                        paymentMethod,
+                        notes: "Advance Collection"
+                    }
+                });
+
+                // Move to next month
+                if (currentMonth === 12) {
+                    currentMonth = 1;
+                    currentYear++;
+                } else {
+                    currentMonth++;
+                }
+            }
+            
+            // 3. Log Activity
+            await prisma.activity.create({
+                data: {
+                    studentId,
+                    type: "PAYMENT",
+                    title: "Advance Fee Collected",
+                    description: `Collected ₹${totalAmount} in advance`,
+                    amount: parseFloat(totalAmount),
+                    status: "Completed",
+                },
+            });
+
+        }, { timeout: 20000 });
+
+        res.json({ success: true, message: "Advance fee collected successfully" });
+
+    } catch (error) {
+        console.error("Advance Fee Error:", error);
+        res.status(500).json({ success: false, message: "Failed to collect advance fee" });
+    }
+};
+
 // ====================== STAFF MANAGEMENT ======================
 
 export const registerStaff = async (req, res) => {
@@ -5281,48 +5653,56 @@ export const getYearlyAccountingReport = async (req, res) => {
 
 export const createPermission = async (req, res) => {
   try {
-    const { studentId, type, reason, returnDate } = req.body;
+    // 1. Destructure status from body (Frontend sends "PENDING")
+    const { studentId, type, reason, returnDate, status: bodyStatus } = req.body;
     let ownerId = req.user.id;
-    let status = "APPROVED"; // Default for Owner
 
-    // --- FIX: Swap ID for Warden ---
+    // 2. FIX: Default to "PENDING" (or use what frontend sent)
+    // Removed the hardcoded "APPROVED" logic
+    let status = bodyStatus || "PENDING"; 
+
+    // --- Logic to handle Warden creating permission ---
     if (req.user.role === 'WARDEN' || req.user.role === 'warden') {
         const staff = await prisma.staff.findUnique({ where: { id: req.user.id } });
         if (staff) ownerId = staff.ownerId;
-        status = "PENDING"; // Warden requests might need approval (optional logic)
+        // Warden requests also default to PENDING (already covered above)
     }
 
     if (!studentId || !type) {
       return res.status(400).json({ success: false, message: "Type is required" });
     }
 
+    // 3. Create the Permission Record
     const permission = await prisma.permission.create({
       data: {
         studentId,
-        ownerId, // Now linked to Owner
+        ownerId,
         type,
         reason: reason || "No reason provided",
         returnDate: returnDate ? new Date(returnDate) : null,
-        status, 
+        status, // Will be "PENDING" now
       },
     });
 
-    // Log Activity
+    // 4. Log Activity
     await prisma.activity.create({
       data: {
         studentId,
         type: "PERMISSION",
-        title: `Permission: ${type}`,
+        title: `Permission Requested: ${type}`,
         description: reason,
-        status: "Pending",
+        status: "Pending", // Keep activity status consistent
       },
     });
 
     res.status(201).json({ success: true, data: permission });
   } catch (error) {
+    console.error("Create permission error:", error);
     res.status(500).json({ success: false, message: "Failed to create permission" });
   }
 };
+
+// getStudentPermissions remains the same, it is correct.
 export const getStudentPermissions = async (req, res) => {
   try {
     const { studentId } = req.params;
