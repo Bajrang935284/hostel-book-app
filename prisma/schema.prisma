@@ -1527,26 +1527,25 @@ enum ActivityType {
 //   @@map("fee_records")
 // }
 
-
 model FeeRecord {
   id        String @id @default(uuid())
   studentId String
   
-  // --- CHANGED SECTION ---
-  // OLD: amount Float
-  // NEW: Split into 3 parts to track partial payments
-  totalAmount     Float    @default(0) // The full fee (e.g., 6000)
-  paidAmount      Float    @default(0) // How much they paid (e.g., 5000)
-  remainingAmount Float    @default(0) // What is left (e.g., 1000)
-  // -----------------------
+  // --- SAFETY SECTION: Keep these to save old data ---
+  amount     Float?    // Added '?' to keep old data safe
+  paidDate   DateTime? // Added '?' to keep old data safe
+  // ---------------------------------------------------
 
-  billingMonth Int // 1-12
-  billingYear  Int // 2024
+  // --- NEW SECTION ---
+  totalAmount     Float    @default(0) 
+  paidAmount      Float    @default(0) 
+  remainingAmount Float    @default(0) 
 
-  // Use a default for dueDate so existing records don't break
+  billingMonth Int 
+  billingYear  Int 
+
   dueDate DateTime @default(now()) 
-
-  // Renamed from paidDate to lastPaymentDate to be clearer
+  
   lastPaymentDate      DateTime? 
   
   status        FeeStatus @default(PENDING)
