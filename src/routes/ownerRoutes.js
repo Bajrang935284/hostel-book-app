@@ -327,7 +327,9 @@ import {
   getMyPayments,
   updateExpenseStatus,
   getDuesReport,
-  collectAdvanceFee
+  collectAdvanceFee,
+  updateStudentFeeRecord,
+  getFeeRecords
 
 } from '../controllers/ownerController.js';
 
@@ -374,14 +376,17 @@ router.get('/dashboard', getDashboardSummary);
 router.post('/students', registerStudent);
 router.get('/students', getMyStudents);
 router.get('/payments', getMyPayments);
+router.get('/students/alumni', getAlumniStudents);
+
 router.get('/students/:studentId/fee-details', getStudentFeeDetails); 
 router.get('/students/:studentId', getStudentById);
 router.post('/collect-fee', collectStudentFee);
+router.put('/fee-record/update', updateStudentFeeRecord); // NEW
 router.put('/students/:studentId', updateStudent);
 router.patch('/students/:studentId/status', updateStudentStatus);
-router.get('/students/alumni', getAlumniStudents);
 router.get('/dues-report',getDuesReport);
 router.post('/collect-advance',collectAdvanceFee);
+router.get('/fee-records',getFeeRecords);
 // --- STAFF MANAGEMENT ---
 // Only Owner should add Wardens
 router.post('/warden/add', authorizeRole('owner'), addWarden);
