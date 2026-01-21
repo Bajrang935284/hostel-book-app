@@ -10,6 +10,7 @@ import parentRoutes from "./routes/parentRoutes.js";
 import activityRoutes from "./routes/activityRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import wardenRoutes from "./routes/wardenRoutes.js";
+import uploadRoutes from "./routes/uploadRoutes.js";  
 const app = express();
 
 
@@ -38,6 +39,7 @@ app.use("/api/warden", wardenRoutes);
 app.use("/api/parent", parentRoutes);
 app.use("/api/activites", activityRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/upload", uploadRoutes);
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);

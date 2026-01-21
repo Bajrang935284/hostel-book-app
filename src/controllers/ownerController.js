@@ -5,8 +5,35 @@
 import { prisma } from "../config/database.js";
 import { hashPassword, comparePassword } from "../utils/passwordHelper.js";
 import { generateToken } from "../utils/jwtHelper.js";
+import { generateViewUrl } from '../services/s3Service.js';// ====================== AUTHENTICATION ======================
 
-// ====================== AUTHENTICATION ======================
+
+
+
+// Helper: Calculate Fee accurately
+const calculateProratedFee = (year, month, monthlyFee, joinDate) => {
+  // Month is 1-12 (Human), joinDate.getMonth() is 0-11 (JS)
+  const isJoiningMonth = 
+    joinDate.getMonth() === (month - 1) && 
+    joinDate.getFullYear() === year;
+
+  // If not joining month, full fee applies
+  if (!isJoiningMonth) return monthlyFee;
+
+  // If joined on the 1st, full fee applies
+  if (joinDate.getDate() === 1) return monthlyFee;
+
+  // Get total days in that specific month (e.g., Feb 2024 = 29)
+  // new Date(year, month, 0) gives the last day of 'month'
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const joiningDay = joinDate.getDate();
+  
+  // Calculate days to pay (Inclusive of joining day)
+  const daysToStay = daysInMonth - joiningDay + 1;
+  const dailyRate = monthlyFee / daysInMonth;
+
+  return Math.round(dailyRate * daysToStay);
+};
 
 export const ownerRegister = async (req, res) => {
   try {
@@ -1370,13 +1397,266 @@ export const getAlumniStudents = async (req, res) => {
 
 // Replace the existing getStudentFeeDetails function in ownerController.js
 
+// export const getStudentFeeDetails = async (req, res) => {
+//   try {
+//     const { studentId } = req.params;
+//     const ownerId = req.user.id;
+
+//     const student = await prisma.student.findFirst({
+//       where: { id: studentId, ownerId },
+//       include: {
+//         feeRecords: {
+//           orderBy: [{ billingYear: "desc" }, { billingMonth: "desc" }],
+//         },
+//       },
+//     });
+
+//     if (!student)
+//       return res.status(404).json({ success: false, message: "Student not found" });
+
+//     const pendingCycles = [];
+//     const admissionDate = new Date(student.admissionDate);
+//     const currentDate = new Date();
+
+//     let checkDate = new Date(
+//       admissionDate.getFullYear(),
+//       admissionDate.getMonth(),
+//       1
+//     );
+
+//     const getMonthName = (d) => d.toLocaleString("default", { month: "long" });
+
+//     // Helper: Only used if NO record exists (for future/unpaid months)
+//     const calculateProratedFee = (year, month, monthlyFee, joinDate) => {
+//       const isJoiningMonth = 
+//         joinDate.getMonth() === (month - 1) && 
+//         joinDate.getFullYear() === year;
+      
+//       if (!isJoiningMonth) return monthlyFee;
+      
+//       const daysInMonth = new Date(year, month, 0).getDate();
+//       const joiningDay = joinDate.getDate();
+//       const daysToStay = daysInMonth - joiningDay + 1;
+//       const dailyRate = monthlyFee / daysInMonth;
+      
+//       return Math.round(dailyRate * daysToStay);
+//     };
+
+//     while (checkDate <= currentDate) {
+//       const checkMonth = checkDate.getMonth() + 1;
+//       const checkYear = checkDate.getFullYear();
+
+//       const record = student.feeRecords.find(
+//         (r) => r.billingMonth === checkMonth && r.billingYear === checkYear
+//       );
+
+//       // ============================================================
+//       // CRITICAL FIX: Snapshot Logic
+//       // ============================================================
+//       let fullFeeForCycle;
+
+//       if (record) {
+//           // 1. If a record exists (Paid or Partial), use the HISTORICAL fee.
+//           // This prevents current fee changes from affecting past records.
+//           fullFeeForCycle = record.totalAmount; 
+//       } else {
+//           // 2. If no record exists (Unpaid), use the CURRENT fee.
+//           fullFeeForCycle = calculateProratedFee(
+//             checkYear, 
+//             checkMonth, 
+//             student.monthlyFee, 
+//             admissionDate
+//           );
+//       }
+//       // ============================================================
+      
+//       let dueAmount = fullFeeForCycle; 
+
+//       if (record) {
+//         if (record.status === "PAID") {
+//           dueAmount = 0; 
+//         } else {
+//           const paidSoFar = record.paidAmount || 0;
+//           dueAmount = Math.max(0, fullFeeForCycle - paidSoFar);
+//         }
+//       }
+
+//       if (dueAmount > 0) {
+//         pendingCycles.push({
+//           month: checkMonth,
+//           year: checkYear,
+//           label: `${getMonthName(checkDate)} ${checkYear}`,
+//           amount: dueAmount,
+//           totalAmount: fullFeeForCycle, // Send this to frontend for label logic
+//           isCurrentMonth:
+//             checkMonth === currentDate.getMonth() + 1 &&
+//             checkYear === currentDate.getFullYear(),
+//         });
+//       }
+      
+//       checkDate.setMonth(checkDate.getMonth() + 1);
+//     }
+
+//     res.json({
+//       success: true,
+//       data: {
+//         studentDetails: {
+//           name: student.name,
+//           monthlyFee: student.monthlyFee,
+//           parentName: student.parentName,
+//           roomNumber: student.roomNumber,
+//         },
+//         pendingMonths: pendingCycles, 
+//         history: student.feeRecords,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Get fee details error:", error);
+//     res.status(500).json({ success: false, message: "Failed to fetch fee details" });
+//   }
+// };
+
+// export const getStudentFeeDetails = async (req, res) => {
+//   try {
+//     const { studentId } = req.params;
+//     const ownerId = req.user.id;
+
+//     const student = await prisma.student.findFirst({
+//       where: { id: studentId, ownerId },
+//       include: {
+//         feeRecords: {
+//           orderBy: [{ billingYear: "desc" }, { billingMonth: "desc" }],
+//         },
+//       },
+//     });
+
+//     if (!student)
+//       return res.status(404).json({ success: false, message: "Student not found" });
+
+//     const pendingCycles = [];
+//     const admissionDate = new Date(student.admissionDate);
+//     const currentDate = new Date();
+
+//     let checkDate = new Date(
+//       admissionDate.getFullYear(),
+//       admissionDate.getMonth(),
+//       1
+//     );
+
+//     const getMonthName = (d) => d.toLocaleString("default", { month: "long" });
+
+//     const calculateProratedFee = (year, month, monthlyFee, joinDate) => {
+//       const isJoiningMonth = 
+//         joinDate.getMonth() === (month - 1) && 
+//         joinDate.getFullYear() === year;
+      
+//       if (!isJoiningMonth) return monthlyFee;
+      
+//       const daysInMonth = new Date(year, month, 0).getDate();
+//       const joiningDay = joinDate.getDate();
+//       const daysToStay = daysInMonth - joiningDay + 1;
+//       const dailyRate = monthlyFee / daysInMonth;
+      
+//       return Math.round(dailyRate * daysToStay);
+//     };
+
+//     while (checkDate <= currentDate) {
+//       const checkMonth = checkDate.getMonth() + 1;
+//       const checkYear = checkDate.getFullYear();
+
+//       const record = student.feeRecords.find(
+//         (r) => r.billingMonth === checkMonth && r.billingYear === checkYear
+//       );
+
+//       let fullFeeForCycle;
+
+//       if (record) {
+//           fullFeeForCycle = record.totalAmount; 
+//       } else {
+//           fullFeeForCycle = calculateProratedFee(
+//             checkYear, 
+//             checkMonth, 
+//             student.monthlyFee, 
+//             admissionDate
+//           );
+//       }
+      
+//       let dueAmount = fullFeeForCycle; 
+
+//       if (record) {
+//         if (record.status === "PAID") {
+//           dueAmount = 0; 
+//         } else {
+//           const paidSoFar = record.paidAmount || 0;
+//           dueAmount = Math.max(0, fullFeeForCycle - paidSoFar);
+//         }
+//       }
+
+//       if (dueAmount > 0) {
+//         pendingCycles.push({
+//           month: checkMonth,
+//           year: checkYear,
+//           label: `${getMonthName(checkDate)} ${checkYear}`,
+//           amount: dueAmount,
+//           totalAmount: fullFeeForCycle,
+//           isCurrentMonth:
+//             checkMonth === currentDate.getMonth() + 1 &&
+//             checkYear === currentDate.getFullYear(),
+//         });
+//       }
+      
+//       checkDate.setMonth(checkDate.getMonth() + 1);
+//     }
+
+//     // ✅ GENERATE SIGNED URLs FOR HISTORY PROOFS
+//     const historyWithUrls = await Promise.all(
+//       student.feeRecords.map(async (record) => {
+//         let proofUrls = [];
+        
+//         if (record.proofImageKeys && record.proofImageKeys.length > 0) {
+//           try {
+//             proofUrls = await Promise.all(
+//               record.proofImageKeys.map(key => generateViewUrl(key))
+//             );
+//           } catch (error) {
+//             console.error(`Failed to generate URLs for record ${record.id}:`, error);
+//           }
+//         }
+        
+//         return {
+//           ...record,
+//           proofUrls // ✅ Frontend will use this array
+//         };
+//       })
+//     );
+
+//     res.json({
+//       success: true,
+//       data: {
+//         studentDetails: {
+//           name: student.name,
+//           monthlyFee: student.monthlyFee,
+//           parentName: student.parentName,
+//           roomNumber: student.roomNumber,
+//         },
+//         pendingMonths: pendingCycles, 
+//         history: historyWithUrls, // ✅ Send history with signed URLs
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Get fee details error:", error);
+//     res.status(500).json({ success: false, message: "Failed to fetch fee details" });
+//   }
+// };
+
+// Replace your existing getStudentFeeDetails with this one
 export const getStudentFeeDetails = async (req, res) => {
   try {
     const { studentId } = req.params;
     const ownerId = req.user.id;
 
     const student = await prisma.student.findFirst({
-      where: { id: studentId, ownerId },
+      where: { id: studentId, ownerId }, // Checks REAL Owner ID (handled by middleware/logic)
       include: {
         feeRecords: {
           orderBy: [{ billingYear: "desc" }, { billingMonth: "desc" }],
@@ -1391,6 +1671,7 @@ export const getStudentFeeDetails = async (req, res) => {
     const admissionDate = new Date(student.admissionDate);
     const currentDate = new Date();
 
+    // Start checking from the 1st of admission month
     let checkDate = new Date(
       admissionDate.getFullYear(),
       admissionDate.getMonth(),
@@ -1399,21 +1680,23 @@ export const getStudentFeeDetails = async (req, res) => {
 
     const getMonthName = (d) => d.toLocaleString("default", { month: "long" });
 
-    // Helper: Only used if NO record exists (for future/unpaid months)
+    // --- REUSE THE SAME HELPER FROM THE FIXES ---
     const calculateProratedFee = (year, month, monthlyFee, joinDate) => {
-      const isJoiningMonth = 
-        joinDate.getMonth() === (month - 1) && 
-        joinDate.getFullYear() === year;
+        const isJoiningMonth = 
+          joinDate.getMonth() === (month - 1) && 
+          joinDate.getFullYear() === year;
       
-      if (!isJoiningMonth) return monthlyFee;
+        if (!isJoiningMonth) return monthlyFee;
+        if (joinDate.getDate() === 1) return monthlyFee;
       
-      const daysInMonth = new Date(year, month, 0).getDate();
-      const joiningDay = joinDate.getDate();
-      const daysToStay = daysInMonth - joiningDay + 1;
-      const dailyRate = monthlyFee / daysInMonth;
+        const daysInMonth = new Date(year, month, 0).getDate();
+        const joiningDay = joinDate.getDate();
+        const daysToStay = daysInMonth - joiningDay + 1;
+        const dailyRate = monthlyFee / daysInMonth;
       
-      return Math.round(dailyRate * daysToStay);
+        return Math.round(dailyRate * daysToStay);
     };
+    // --------------------------------------------
 
     while (checkDate <= currentDate) {
       const checkMonth = checkDate.getMonth() + 1;
@@ -1424,16 +1707,15 @@ export const getStudentFeeDetails = async (req, res) => {
       );
 
       // ============================================================
-      // CRITICAL FIX: Snapshot Logic
+      // 🔒 CONSISTENT FEE LOGIC
       // ============================================================
       let fullFeeForCycle;
 
       if (record) {
-          // 1. If a record exists (Paid or Partial), use the HISTORICAL fee.
-          // This prevents current fee changes from affecting past records.
+          // If record exists, trust the historical locked amount
           fullFeeForCycle = record.totalAmount; 
       } else {
-          // 2. If no record exists (Unpaid), use the CURRENT fee.
+          // If no record, calculate exactly like collectAdvanceFee does
           fullFeeForCycle = calculateProratedFee(
             checkYear, 
             checkMonth, 
@@ -1460,7 +1742,7 @@ export const getStudentFeeDetails = async (req, res) => {
           year: checkYear,
           label: `${getMonthName(checkDate)} ${checkYear}`,
           amount: dueAmount,
-          totalAmount: fullFeeForCycle, // Send this to frontend for label logic
+          totalAmount: fullFeeForCycle, 
           isCurrentMonth:
             checkMonth === currentDate.getMonth() + 1 &&
             checkYear === currentDate.getFullYear(),
@@ -1469,6 +1751,28 @@ export const getStudentFeeDetails = async (req, res) => {
       
       checkDate.setMonth(checkDate.getMonth() + 1);
     }
+
+    // ✅ Generate signed URLs for history proofs
+    const historyWithUrls = await Promise.all(
+      student.feeRecords.map(async (record) => {
+        let proofUrls = [];
+        
+        if (record.proofImageKeys && record.proofImageKeys.length > 0) {
+          try {
+            proofUrls = await Promise.all(
+              record.proofImageKeys.map(key => generateViewUrl(key))
+            );
+          } catch (error) {
+            console.error(`Failed to generate URLs for record ${record.id}:`, error);
+          }
+        }
+        
+        return {
+          ...record,
+          proofUrls
+        };
+      })
+    );
 
     res.json({
       success: true,
@@ -1480,12 +1784,141 @@ export const getStudentFeeDetails = async (req, res) => {
           roomNumber: student.roomNumber,
         },
         pendingMonths: pendingCycles, 
-        history: student.feeRecords,
+        history: historyWithUrls,
       },
     });
   } catch (error) {
     console.error("Get fee details error:", error);
     res.status(500).json({ success: false, message: "Failed to fetch fee details" });
+  }
+};
+
+
+export const collectStudentFee = async (req, res) => {
+  try {
+    const {
+      studentId,
+      amount,
+      securityDeduction = 0,
+      paymentDate,
+      paymentMonth,
+      paymentYear,
+      paymentMethod,
+      notes,
+      borrowingIds,
+      proofImageKeys = [] // ✅ Expecting Array of Strings
+    } = req.body;
+    
+    const ownerId = req.user.id;
+
+    // ... (Your validation logic remains the same) ...
+    const student = await prisma.student.findUnique({ where: { id: studentId } });
+    if (!student) return res.status(404).json({ message: "Student not found" });
+
+    // Check existing record
+    const existingRecord = await prisma.feeRecord.findUnique({
+        where: {
+            studentId_billingMonth_billingYear: {
+                studentId,
+                billingMonth: parseInt(paymentMonth),
+                billingYear: parseInt(paymentYear)
+            }
+        }
+    });
+
+    // --- FEE CALCULATION LOGIC (Same as before) ---
+    let totalDueForCycle;
+    if (existingRecord) {
+        totalDueForCycle = existingRecord.totalAmount;
+    } else {
+        const admissionDate = new Date(student.admissionDate);
+        totalDueForCycle = calculateProratedFee(
+            parseInt(paymentYear), 
+            parseInt(paymentMonth), 
+            student.monthlyFee, 
+            admissionDate
+        );
+    }
+
+    const previousPaid = existingRecord ? existingRecord.paidAmount : 0;
+    const newTotalPaid = previousPaid + parseFloat(amount);
+    const remaining = totalDueForCycle - newTotalPaid;
+
+    let status = "PAID";
+    if (remaining > 10) {
+        status = "PARTIAL";
+    }
+
+    const actualDate = paymentDate ? new Date(paymentDate) : new Date();
+
+    const result = await prisma.$transaction(async (prisma) => {
+      
+      // 1. Create Receipt
+      const newPayment = await prisma.feePayment.create({
+        data: {
+          amount: parseFloat(amount),
+          paymentDate: actualDate,
+          paymentMonth: parseInt(paymentMonth),
+          paymentYear: parseInt(paymentYear),
+          paymentMethod: paymentMethod || "Cash",
+          notes: notes || (status === "PARTIAL" ? "Partial Payment" : "Fee Payment"),
+          status: "Completed",
+          proofImageKeys: proofImageKeys, // ✅ Save S3 Keys to Receipt
+          studentId,
+          ownerId,
+          hostelId: student.hostelId,
+        },
+      });
+
+      // 2. Update/Create Fee Ledger
+      await prisma.feeRecord.upsert({
+        where: {
+          studentId_billingMonth_billingYear: {
+            studentId,
+            billingMonth: parseInt(paymentMonth),
+            billingYear: parseInt(paymentYear),
+          },
+        },
+        update: { 
+            status: status, 
+            paidAmount: newTotalPaid,
+            remainingAmount: remaining > 0 ? remaining : 0,
+            lastPaymentDate: actualDate,
+            paymentMethod,
+            proofImageKeys: {
+                push: proofImageKeys // ✅ Append keys to existing record
+            }
+        },
+        create: {
+          studentId,
+          totalAmount: totalDueForCycle,
+          paidAmount: parseFloat(amount),
+          remainingAmount: remaining > 0 ? remaining : 0,
+          billingMonth: parseInt(paymentMonth),
+          billingYear: parseInt(paymentYear),
+          status: status,
+          lastPaymentDate: actualDate,
+          paymentMethod,
+          notes: "Collected via App",
+          proofImageKeys: proofImageKeys, // ✅ Save keys to new record
+        },
+      });
+
+      // 3. Mark Borrowings
+      if (borrowingIds && borrowingIds.length > 0) {
+        await prisma.studentBorrowing.updateMany({
+          where: { id: { in: borrowingIds } },
+          data: { status: "Repaid" },
+        });
+      }
+
+      return newPayment;
+    }, { timeout: 20000 });
+
+    res.status(201).json({ success: true, data: result });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: "Failed to collect fee" });
   }
 };
 
@@ -1602,354 +2035,563 @@ export const getStudentFeeDetails = async (req, res) => {
 // src/controllers/ownerController.js
 
 // 1. UPDATE EXISTING: collectStudentFee (Handle Partial Logic)
-export const collectStudentFee = async (req, res) => {
+// export const collectStudentFee = async (req, res) => {
+//   try {
+//     const {
+//       studentId,
+//       amount,
+//       paymentDate,
+//       paymentMonth,
+//       paymentYear,
+//       paymentMethod,
+//       notes,
+//       borrowingIds,
+//     } = req.body;
+//     const ownerId = req.user.id;
+
+//     const student = await prisma.student.findUnique({ where: { id: studentId } });
+//     if (!student) return res.status(404).json({ message: "Student not found" });
+
+//     // --- LOGIC FOR PARTIAL VS FULL ---
+//     // Get existing record to check total due, or calculate from student.monthlyFee
+//     const existingRecord = await prisma.feeRecord.findUnique({
+//         where: {
+//             studentId_billingMonth_billingYear: {
+//                 studentId,
+//                 billingMonth: parseInt(paymentMonth),
+//                 billingYear: parseInt(paymentYear)
+//             }
+//         }
+//     });
+
+//     const totalDueForCycle = existingRecord ? existingRecord.totalAmount : student.monthlyFee;
+//     const previousPaid = existingRecord ? existingRecord.paidAmount : 0;
+    
+//     // New total paid for this cycle
+//     const newTotalPaid = previousPaid + parseFloat(amount);
+//     const remaining = totalDueForCycle - newTotalPaid;
+
+//     // Determine Status
+//     let status = "PAID";
+//     if (remaining > 10) { // Tolerance of 10rs
+//         status = "PARTIAL";
+//     }
+
+//     const actualDate = paymentDate ? new Date(paymentDate) : new Date();
+
+//     const result = await prisma.$transaction(async (prisma) => {
+//       // 1. Create Receipt
+//       const newPayment = await prisma.feePayment.create({
+//         data: {
+//           amount: parseFloat(amount),
+//           paymentDate: actualDate,
+//           paymentMonth: parseInt(paymentMonth),
+//           paymentYear: parseInt(paymentYear),
+//           paymentMethod: paymentMethod || "Cash",
+//           notes: notes || (status === "PARTIAL" ? "Partial Payment" : "Fee Payment"),
+//           status: "Completed",
+//           studentId,
+//           ownerId,
+//           hostelId: student.hostelId,
+//         },
+//       });
+
+//       // 2. Update/Create Fee Ledger
+//       await prisma.feeRecord.upsert({
+//         where: {
+//           studentId_billingMonth_billingYear: {
+//             studentId,
+//             billingMonth: parseInt(paymentMonth),
+//             billingYear: parseInt(paymentYear),
+//           },
+//         },
+//         update: { 
+//             status: status, 
+//             paidAmount: newTotalPaid,
+//             remainingAmount: remaining > 0 ? remaining : 0,
+//             lastPaymentDate: actualDate,
+//             paymentMethod 
+//         },
+//         create: {
+//           studentId,
+//           totalAmount: totalDueForCycle, 
+//           paidAmount: parseFloat(amount),
+//           remainingAmount: remaining > 0 ? remaining : 0,
+//           billingMonth: parseInt(paymentMonth),
+//           billingYear: parseInt(paymentYear),
+//           status: status,
+//           lastPaymentDate: actualDate,
+//           paymentMethod,
+//           notes: "Collected via App",
+//         },
+//       });
+
+//       // 3. Mark Borrowings
+//       if (borrowingIds && borrowingIds.length > 0) {
+//         await prisma.studentBorrowing.updateMany({
+//           where: { id: { in: borrowingIds } },
+//           data: { status: "Repaid" },
+//         });
+//       }
+
+//       return newPayment;
+//     }, { timeout: 20000 });
+
+//     res.status(201).json({ success: true, data: result });
+//   } catch (error) {
+//     console.error(error);
+//     res.status(500).json({ success: false, message: "Failed to collect fee" });
+//   }
+// };
+
+// export const collectStudentFee = async (req, res) => {
+//   try {
+//     const {
+//       studentId,
+//       amount,
+//       securityDeduction = 0, // ✅ ADD THIS
+//       paymentDate,
+//       paymentMonth,
+//       paymentYear,
+//       paymentMethod,
+//       notes,
+//       borrowingIds,
+//       proofImageKeys = [] // ✅ ADD THIS
+//     } = req.body;
+//     const ownerId = req.user.id;
+
+//     const student = await prisma.student.findUnique({ where: { id: studentId } });
+//     if (!student) return res.status(404).json({ message: "Student not found" });
+
+//     const existingRecord = await prisma.feeRecord.findUnique({
+//         where: {
+//             studentId_billingMonth_billingYear: {
+//                 studentId,
+//                 billingMonth: parseInt(paymentMonth),
+//                 billingYear: parseInt(paymentYear)
+//             }
+//         }
+//     });
+
+//     const totalDueForCycle = existingRecord ? existingRecord.totalAmount : student.monthlyFee;
+//     const previousPaid = existingRecord ? existingRecord.paidAmount : 0;
+    
+//     const newTotalPaid = previousPaid + parseFloat(amount);
+//     const remaining = totalDueForCycle - newTotalPaid;
+
+//     let status = "PAID";
+//     if (remaining > 10) {
+//         status = "PARTIAL";
+//     }
+
+//     const actualDate = paymentDate ? new Date(paymentDate) : new Date();
+
+//     const result = await prisma.$transaction(async (prisma) => {
+//       // 1. Create Receipt WITH PROOF KEYS
+//       const newPayment = await prisma.feePayment.create({
+//         data: {
+//           amount: parseFloat(amount),
+//           paymentDate: actualDate,
+//           paymentMonth: parseInt(paymentMonth),
+//           paymentYear: parseInt(paymentYear),
+//           paymentMethod: paymentMethod || "Cash",
+//           notes: notes || (status === "PARTIAL" ? "Partial Payment" : "Fee Payment"),
+//           status: "Completed",
+//           proofImageKeys: proofImageKeys, // ✅ STORE S3 KEYS
+//           studentId,
+//           ownerId,
+//           hostelId: student.hostelId,
+//         },
+//       });
+
+//       // 2. Update/Create Fee Ledger WITH PROOF KEYS
+//       await prisma.feeRecord.upsert({
+//         where: {
+//           studentId_billingMonth_billingYear: {
+//             studentId,
+//             billingMonth: parseInt(paymentMonth),
+//             billingYear: parseInt(paymentYear),
+//           },
+//         },
+//         update: { 
+//             status: status, 
+//             paidAmount: newTotalPaid,
+//             remainingAmount: remaining > 0 ? remaining : 0,
+//             lastPaymentDate: actualDate,
+//             paymentMethod,
+//             proofImageKeys: { // ✅ APPEND NEW KEYS
+//               push: proofImageKeys
+//             }
+//         },
+//         create: {
+//           studentId,
+//           totalAmount: totalDueForCycle, 
+//           paidAmount: parseFloat(amount),
+//           remainingAmount: remaining > 0 ? remaining : 0,
+//           billingMonth: parseInt(paymentMonth),
+//           billingYear: parseInt(paymentYear),
+//           status: status,
+//           lastPaymentDate: actualDate,
+//           paymentMethod,
+//           notes: "Collected via App",
+//           proofImageKeys: proofImageKeys, // ✅ STORE KEYS
+//         },
+//       });
+
+//       // 3. Mark Borrowings
+//       if (borrowingIds && borrowingIds.length > 0) {
+//         await prisma.studentBorrowing.updateMany({
+//           where: { id: { in: borrowingIds } },
+//           data: { status: "Repaid" },
+//         });
+//       }
+
+//       return newPayment;
+//     }, { timeout: 20000 });
+
+//     res.status(201).json({ success: true, data: result });
+//   } catch (error) {
+//     console.error(error);
+//     res.status(500).json({ success: false, message: "Failed to collect fee" });
+//   }
+// };
+
+// export const collectStudentFee = async (req, res) => {
+//   try {
+//     const {
+//       studentId,
+//       amount,
+//       securityDeduction = 0,
+//       paymentDate,
+//       paymentMonth,
+//       paymentYear,
+//       paymentMethod,
+//       notes,
+//       borrowingIds,
+//       proofImageKeys = []
+//     } = req.body;
+//     const ownerId = req.user.id;
+
+//     const student = await prisma.student.findUnique({ where: { id: studentId } });
+//     if (!student) return res.status(404).json({ message: "Student not found" });
+
+//     // Check if record already exists
+//     const existingRecord = await prisma.feeRecord.findUnique({
+//         where: {
+//             studentId_billingMonth_billingYear: {
+//                 studentId,
+//                 billingMonth: parseInt(paymentMonth),
+//                 billingYear: parseInt(paymentYear)
+//             }
+//         }
+//     });
+
+//     // ============================================================
+//     // 🔒 CALCULATE LOCKED TOTAL AMOUNT
+//     // This value should NEVER change once set
+//     // ============================================================
+//     let totalDueForCycle;
+
+//     if (existingRecord) {
+//         // Record exists - use the historical totalAmount
+//         totalDueForCycle = existingRecord.totalAmount;
+//     } else {
+//         // New record - calculate using CURRENT fee and lock it
+//         const admissionDate = new Date(student.admissionDate);
+//         const isJoiningMonth = 
+//           admissionDate.getMonth() === (parseInt(paymentMonth) - 1) && 
+//           admissionDate.getFullYear() === parseInt(paymentYear);
+        
+//         if (!isJoiningMonth || admissionDate.getDate() === 1) {
+//           totalDueForCycle = student.monthlyFee;
+//         } else {
+//           // Prorated calculation for joining month
+//           const daysInMonth = new Date(parseInt(paymentYear), parseInt(paymentMonth), 0).getDate();
+//           const joiningDay = admissionDate.getDate();
+//           const daysToStay = daysInMonth - joiningDay + 1;
+//           const dailyRate = student.monthlyFee / daysInMonth;
+//           totalDueForCycle = Math.round(dailyRate * daysToStay);
+//         }
+//     }
+//     // ============================================================
+
+//     const previousPaid = existingRecord ? existingRecord.paidAmount : 0;
+//     const newTotalPaid = previousPaid + parseFloat(amount);
+//     const remaining = totalDueForCycle - newTotalPaid;
+
+//     let status = "PAID";
+//     if (remaining > 10) {
+//         status = "PARTIAL";
+//     }
+
+//     const actualDate = paymentDate ? new Date(paymentDate) : new Date();
+
+//     const result = await prisma.$transaction(async (prisma) => {
+//       // 1. Create Receipt
+//       const newPayment = await prisma.feePayment.create({
+//         data: {
+//           amount: parseFloat(amount),
+//           paymentDate: actualDate,
+//           paymentMonth: parseInt(paymentMonth),
+//           paymentYear: parseInt(paymentYear),
+//           paymentMethod: paymentMethod || "Cash",
+//           notes: notes || (status === "PARTIAL" ? "Partial Payment" : "Fee Payment"),
+//           status: "Completed",
+//           proofImageKeys: proofImageKeys,
+//           studentId,
+//           ownerId,
+//           hostelId: student.hostelId,
+//         },
+//       });
+
+//       // 2. Update/Create Fee Ledger with LOCKED totalAmount
+//       await prisma.feeRecord.upsert({
+//         where: {
+//           studentId_billingMonth_billingYear: {
+//             studentId,
+//             billingMonth: parseInt(paymentMonth),
+//             billingYear: parseInt(paymentYear),
+//           },
+//         },
+//         update: { 
+//             status: status, 
+//             paidAmount: newTotalPaid,
+//             remainingAmount: remaining > 0 ? remaining : 0,
+//             lastPaymentDate: actualDate,
+//             paymentMethod,
+//             proofImageKeys: { 
+//               push: proofImageKeys
+//             }
+//             // 🔒 NOTE: We do NOT update totalAmount here
+//         },
+//         create: {
+//           studentId,
+//           totalAmount: totalDueForCycle, // 🔒 LOCK the fee forever
+//           paidAmount: parseFloat(amount),
+//           remainingAmount: remaining > 0 ? remaining : 0,
+//           billingMonth: parseInt(paymentMonth),
+//           billingYear: parseInt(paymentYear),
+//           status: status,
+//           lastPaymentDate: actualDate,
+//           paymentMethod,
+//           notes: "Collected via App",
+//           proofImageKeys: proofImageKeys,
+//         },
+//       });
+
+//       // 3. Mark Borrowings
+//       if (borrowingIds && borrowingIds.length > 0) {
+//         await prisma.studentBorrowing.updateMany({
+//           where: { id: { in: borrowingIds } },
+//           data: { status: "Repaid" },
+//         });
+//       }
+
+//       return newPayment;
+//     }, { timeout: 20000 });
+
+//     res.status(201).json({ success: true, data: result });
+//   } catch (error) {
+//     console.error(error);
+//     res.status(500).json({ success: false, message: "Failed to collect fee" });
+//   }
+// };
+
+
+
+// ============================================================
+// FIX: collectAdvanceFee - Lock totalAmount for each cycle
+// ============================================================
+
+export const collectAdvanceFee = async (req, res) => {
   try {
-    const {
-      studentId,
-      amount,
-      paymentDate,
-      paymentMonth,
-      paymentYear,
-      paymentMethod,
-      notes,
-      borrowingIds,
+    const { 
+      studentId, 
+      totalAmount, 
+      paymentMethod, 
+      notes, 
+      proofImageKeys = [] // Array of S3 keys from frontend
     } = req.body;
+    
     const ownerId = req.user.id;
 
-    const student = await prisma.student.findUnique({ where: { id: studentId } });
-    if (!student) return res.status(404).json({ message: "Student not found" });
-
-    // --- LOGIC FOR PARTIAL VS FULL ---
-    // Get existing record to check total due, or calculate from student.monthlyFee
-    const existingRecord = await prisma.feeRecord.findUnique({
-        where: {
-            studentId_billingMonth_billingYear: {
-                studentId,
-                billingMonth: parseInt(paymentMonth),
-                billingYear: parseInt(paymentYear)
-            }
-        }
+    // 1. FETCH DATA (Read only - No transaction yet)
+    const student = await prisma.student.findUnique({ 
+      where: { id: studentId },
+      include: { 
+        feeRecords: { 
+          orderBy: [{ billingYear: 'asc' }, { billingMonth: 'asc' }] 
+        } 
+      }
     });
 
-    const totalDueForCycle = existingRecord ? existingRecord.totalAmount : student.monthlyFee;
-    const previousPaid = existingRecord ? existingRecord.paidAmount : 0;
-    
-    // New total paid for this cycle
-    const newTotalPaid = previousPaid + parseFloat(amount);
-    const remaining = totalDueForCycle - newTotalPaid;
+    if (!student) return res.status(404).json({ message: "Student not found" });
 
-    // Determine Status
-    let status = "PAID";
-    if (remaining > 10) { // Tolerance of 10rs
-        status = "PARTIAL";
+    // ---------------------------------------------------------
+    // PHASE 1: CALCULATION (In Memory - Fast)
+    // ---------------------------------------------------------
+    const admissionDate = new Date(student.admissionDate);
+    const currentDate = new Date();
+    
+    // We will calculate exact operations to perform in DB
+    let moneyLeft = parseFloat(totalAmount);
+    const operations = []; // Stores { month, year, amountToPay, fullFee, isNewRecord }
+    const paidCycles = []; // For response
+
+    // Start checking from Admission Month
+    let checkDate = new Date(admissionDate.getFullYear(), admissionDate.getMonth(), 1);
+    
+    // Safety break: Don't calculate more than 5 years into future to prevent infinite loops
+    const maxFutureDate = new Date(currentDate.getFullYear() + 5, 11, 31); 
+
+    while (moneyLeft > 0 && checkDate < maxFutureDate) {
+      const checkMonth = checkDate.getMonth() + 1; // 1-12
+      const checkYear = checkDate.getFullYear();
+
+      // Find if record exists in the data we already fetched
+      const existingRecord = student.feeRecords.find(
+        r => r.billingMonth === checkMonth && r.billingYear === checkYear
+      );
+
+      let fullFeeForCycle;
+      let alreadyPaid = 0;
+      let isNewRecord = false;
+
+      // A. DETERMINE TOTAL FEE FOR THIS CYCLE
+      if (existingRecord) {
+        // use historical locked amount
+        fullFeeForCycle = existingRecord.totalAmount;
+        alreadyPaid = existingRecord.paidAmount || 0;
+      } else {
+        // calculate prorated or full fee
+        fullFeeForCycle = calculateProratedFee(
+          checkYear, 
+          checkMonth, 
+          student.monthlyFee, 
+          admissionDate
+        );
+        isNewRecord = true;
+      }
+
+      // B. CALCULATE HOW MUCH IS OWED
+      const pendingForCycle = Math.max(0, fullFeeForCycle - alreadyPaid);
+
+      // C. IF MONEY IS OWED, TRY TO PAY IT
+      if (pendingForCycle > 0) {
+        const paymentForCycle = Math.min(moneyLeft, pendingForCycle);
+        
+        // Add to operations queue
+        operations.push({
+          month: checkMonth,
+          year: checkYear,
+          existingRecordId: existingRecord ? existingRecord.id : null,
+          fullFee: fullFeeForCycle,
+          previousPaid: alreadyPaid,
+          paymentAmount: paymentForCycle,
+          isNew: isNewRecord
+        });
+
+        moneyLeft -= paymentForCycle;
+        paidCycles.push({ month: checkMonth, year: checkYear });
+      } else if (checkDate > currentDate && moneyLeft > 0) {
+        // If it's a future month with 0 pending (likely fully paid already), 
+        // we skip it and move to next month. 
+        // If it was past/present fully paid, we just continue loop.
+      }
+
+      // Move to next month
+      checkDate.setMonth(checkDate.getMonth() + 1);
     }
 
-    const actualDate = paymentDate ? new Date(paymentDate) : new Date();
-
-    const result = await prisma.$transaction(async (prisma) => {
-      // 1. Create Receipt
-      const newPayment = await prisma.feePayment.create({
+    // ---------------------------------------------------------
+    // PHASE 2: EXECUTION (Database Transaction)
+    // ---------------------------------------------------------
+    await prisma.$transaction(async (prisma) => {
+      
+      // 1. Create One Main Receipt for the Bulk Amount
+      const mainReceipt = await prisma.feePayment.create({
         data: {
-          amount: parseFloat(amount),
-          paymentDate: actualDate,
-          paymentMonth: parseInt(paymentMonth),
-          paymentYear: parseInt(paymentYear),
+          amount: parseFloat(totalAmount),
+          paymentDate: new Date(),
+          // Store range in months just for reference
+          paymentMonth: paidCycles.length > 0 ? paidCycles[0].month : currentDate.getMonth() + 1,
+          paymentYear: paidCycles.length > 0 ? paidCycles[0].year : currentDate.getFullYear(),
           paymentMethod: paymentMethod || "Cash",
-          notes: notes || (status === "PARTIAL" ? "Partial Payment" : "Fee Payment"),
+          notes: notes || "Bulk Advance Payment",
           status: "Completed",
+          proofImageKeys: proofImageKeys, // ✅ Save Array of S3 Keys
           studentId,
           ownerId,
           hostelId: student.hostelId,
-        },
+        }
       });
 
-      // 2. Update/Create Fee Ledger
-      await prisma.feeRecord.upsert({
-        where: {
-          studentId_billingMonth_billingYear: {
-            studentId,
-            billingMonth: parseInt(paymentMonth),
-            billingYear: parseInt(paymentYear),
-          },
-        },
-        update: { 
-            status: status, 
-            paidAmount: newTotalPaid,
-            remainingAmount: remaining > 0 ? remaining : 0,
-            lastPaymentDate: actualDate,
-            paymentMethod 
-        },
-        create: {
-          studentId,
-          totalAmount: totalDueForCycle, 
-          paidAmount: parseFloat(amount),
-          remainingAmount: remaining > 0 ? remaining : 0,
-          billingMonth: parseInt(paymentMonth),
-          billingYear: parseInt(paymentYear),
-          status: status,
-          lastPaymentDate: actualDate,
-          paymentMethod,
-          notes: "Collected via App",
-        },
-      });
+      // 2. Execute Updates/Creates for Fee Records
+      for (const op of operations) {
+        const newTotalPaid = op.previousPaid + op.paymentAmount;
+        const newRemaining = op.fullFee - newTotalPaid;
+        // Tolerance of 10 for float math
+        const newStatus = newRemaining <= 10 ? "PAID" : "PARTIAL";
 
-      // 3. Mark Borrowings
-      if (borrowingIds && borrowingIds.length > 0) {
-        await prisma.studentBorrowing.updateMany({
-          where: { id: { in: borrowingIds } },
-          data: { status: "Repaid" },
-        });
+        if (op.isNew) {
+          // CREATE NEW RECORD
+          await prisma.feeRecord.create({
+            data: {
+              studentId,
+              totalAmount: op.fullFee, // 🔒 Locked Fee
+              paidAmount: op.paymentAmount,
+              remainingAmount: newRemaining > 0 ? newRemaining : 0,
+              billingMonth: op.month,
+              billingYear: op.year,
+              status: newStatus,
+              lastPaymentDate: new Date(),
+              paymentMethod,
+              notes: "Advance Fee",
+              proofImageKeys: proofImageKeys // Optional: Attach proofs to individual records too
+            }
+          });
+        } else {
+          // UPDATE EXISTING RECORD
+          await prisma.feeRecord.update({
+            where: { id: op.existingRecordId },
+            data: {
+              status: newStatus,
+              paidAmount: newTotalPaid,
+              remainingAmount: newRemaining > 0 ? newRemaining : 0,
+              lastPaymentDate: new Date(),
+              proofImageKeys: {
+                push: proofImageKeys // ✅ Append new images to existing array
+              }
+            }
+          });
+        }
       }
 
-      return newPayment;
-    }, { timeout: 20000 });
+      // 3. Log Activity
+      await prisma.activity.create({
+        data: {
+          studentId,
+          type: "PAYMENT",
+          title: "Bulk Payment Collected",
+          description: `Collected ₹${totalAmount} covering ${paidCycles.length} month(s)`,
+          amount: parseFloat(totalAmount),
+          status: "Completed",
+        },
+      });
 
-    res.status(201).json({ success: true, data: result });
+    }, { timeout: 20000 }); // Increase timeout to 20s just in case
+
+    res.json({ 
+      success: true, 
+      message: "Payment collected successfully",
+      data: { paidCycles } 
+    });
+
   } catch (error) {
-    console.error(error);
+    console.error("Advance Fee Error:", error);
     res.status(500).json({ success: false, message: "Failed to collect fee" });
   }
 };
-
-// 2. NEW FUNCTION: collectAdvanceFee
-
-export const collectAdvanceFee = async (req, res) => {
-    try {
-        const { studentId, totalAmount, paymentMethod, notes } = req.body;
-        const ownerId = req.user.id;
-
-        const student = await prisma.student.findUnique({ 
-            where: { id: studentId },
-            include: { 
-                feeRecords: { 
-                    orderBy: [{ billingYear: 'asc' }, { billingMonth: 'asc' }]
-                } 
-            }
-        });
-
-        if (!student) return res.status(404).json({ message: "Student not found" });
-
-        const admissionDate = new Date(student.admissionDate);
-        const currentDate = new Date();
-        
-        const calculateProratedFee = (year, month, monthlyFee, joinDate) => {
-          const isJoiningMonth = 
-            joinDate.getMonth() === (month - 1) && 
-            joinDate.getFullYear() === year;
-          if (!isJoiningMonth) return monthlyFee;
-          const daysInMonth = new Date(year, month, 0).getDate();
-          const joiningDay = joinDate.getDate();
-          const daysToStay = daysInMonth - joiningDay + 1;
-          const dailyRate = monthlyFee / daysInMonth;
-          return Math.round(dailyRate * daysToStay);
-        };
-
-        const allPendingCycles = [];
-        const endCheckDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
-        let checkDate = new Date(admissionDate.getFullYear(), admissionDate.getMonth(), 1);
-        
-        while (checkDate <= endCheckDate) {
-            const checkMonth = checkDate.getMonth() + 1;
-            const checkYear = checkDate.getFullYear();
-            
-            const existingRecord = student.feeRecords.find(
-                r => r.billingMonth === checkMonth && r.billingYear === checkYear
-            );
-            
-            // --- CRITICAL FIX START ---
-            let fullFeeForCycle;
-            let alreadyPaid = 0;
-
-            if (existingRecord) {
-                // If record exists, use ITS totalAmount (The History Snapshot)
-                fullFeeForCycle = existingRecord.totalAmount;
-                alreadyPaid = existingRecord.paidAmount || 0;
-            } else {
-                // If no record, calculate using current fee
-                fullFeeForCycle = calculateProratedFee(
-                    checkYear, 
-                    checkMonth, 
-                    student.monthlyFee, 
-                    admissionDate
-                );
-            }
-            // --- CRITICAL FIX END ---
-            
-            let dueAmount = Math.max(0, fullFeeForCycle - alreadyPaid);
-            
-            if (dueAmount > 0) {
-                allPendingCycles.push({
-                    month: checkMonth,
-                    year: checkYear,
-                    dueAmount,
-                    fullFee: fullFeeForCycle,
-                    alreadyPaid
-                });
-            }
-            
-            checkDate.setMonth(checkDate.getMonth() + 1);
-        }
-
-        let moneyLeft = parseFloat(totalAmount);
-        const monthlyFee = student.monthlyFee;
-        const paidCycles = []; 
-
-        await prisma.$transaction(async (prisma) => {
-            
-            await prisma.feePayment.create({
-                data: {
-                    amount: parseFloat(totalAmount),
-                    paymentDate: new Date(),
-                    paymentMonth: allPendingCycles.length > 0 ? allPendingCycles[0].month : currentDate.getMonth() + 1,
-                    paymentYear: allPendingCycles.length > 0 ? allPendingCycles[0].year : currentDate.getFullYear(),
-                    paymentMethod: paymentMethod || "Cash",
-                    notes: `Bulk Payment: ${notes || 'All Dues + Future'}`,
-                    status: "Completed",
-                    studentId,
-                    ownerId,
-                    hostelId: student.hostelId,
-                }
-            });
-
-            for (const cycle of allPendingCycles) {
-                if (moneyLeft <= 0) break;
-                
-                const paymentForCycle = Math.min(moneyLeft, cycle.dueAmount);
-                const newTotalPaid = cycle.alreadyPaid + paymentForCycle;
-                const newRemaining = cycle.fullFee - newTotalPaid;
-                const status = newRemaining <= 10 ? "PAID" : "PARTIAL";
-
-                await prisma.feeRecord.upsert({
-                    where: {
-                        studentId_billingMonth_billingYear: {
-                            studentId,
-                            billingMonth: cycle.month,
-                            billingYear: cycle.year
-                        }
-                    },
-                    update: {
-                        status,
-                        paidAmount: newTotalPaid,
-                        remainingAmount: newRemaining > 0 ? newRemaining : 0,
-                        lastPaymentDate: new Date(),
-                        paymentMethod
-                    },
-                    create: {
-                        studentId,
-                        totalAmount: cycle.fullFee, // This locks in the fee for this month
-                        paidAmount: paymentForCycle,
-                        remainingAmount: newRemaining > 0 ? newRemaining : 0,
-                        billingMonth: cycle.month,
-                        billingYear: cycle.year,
-                        status,
-                        lastPaymentDate: new Date(),
-                        paymentMethod,
-                        notes: "Bulk Payment"
-                    }
-                });
-
-                paidCycles.push({ month: cycle.month, year: cycle.year });
-                moneyLeft -= paymentForCycle;
-            }
-
-            if (moneyLeft > 0) {
-                let futureMonth = currentDate.getMonth() + 2; 
-                let futureYear = currentDate.getFullYear();
-                
-                if (futureMonth > 12) {
-                    futureMonth -= 12;
-                    futureYear++;
-                }
-
-                while (moneyLeft > 0) {
-                    const existingFutureRecord = await prisma.feeRecord.findUnique({
-                        where: {
-                            studentId_billingMonth_billingYear: {
-                                studentId,
-                                billingMonth: futureMonth,
-                                billingYear: futureYear
-                            }
-                        }
-                    });
-
-                    // For future months (snapshot logic)
-                    // If record exists, respect its totalAmount. If not, use CURRENT monthlyFee
-                    const cycleTotalFee = existingFutureRecord ? existingFutureRecord.totalAmount : monthlyFee;
-                    const alreadyPaidInFuture = existingFutureRecord ? existingFutureRecord.paidAmount : 0;
-                    
-                    const roomInThisMonth = Math.max(0, cycleTotalFee - alreadyPaidInFuture);
-                    
-                    if (roomInThisMonth === 0) {
-                         if (futureMonth === 12) { futureMonth = 1; futureYear++; } else { futureMonth++; }
-                         continue;
-                    }
-
-                    const paymentForCycle = Math.min(moneyLeft, roomInThisMonth);
-                    const newTotalPaidInFuture = alreadyPaidInFuture + paymentForCycle;
-                    const newRemainingInFuture = cycleTotalFee - newTotalPaidInFuture;
-                    const finalStatus = newRemainingInFuture <= 10 ? "PAID" : "PARTIAL";
-
-                    await prisma.feeRecord.upsert({
-                        where: {
-                            studentId_billingMonth_billingYear: {
-                                studentId,
-                                billingMonth: futureMonth,
-                                billingYear: futureYear
-                            }
-                        },
-                        update: {
-                            status: finalStatus,
-                            paidAmount: newTotalPaidInFuture,
-                            remainingAmount: newRemainingInFuture > 0 ? newRemainingInFuture : 0,
-                            lastPaymentDate: new Date(),
-                            paymentMethod
-                        },
-                        create: {
-                            studentId,
-                            totalAmount: cycleTotalFee, // Locks in current fee for future
-                            paidAmount: paymentForCycle,
-                            remainingAmount: newRemainingInFuture > 0 ? newRemainingInFuture : 0,
-                            billingMonth: futureMonth,
-                            billingYear: futureYear,
-                            status: finalStatus,
-                            lastPaymentDate: new Date(),
-                            paymentMethod,
-                            notes: "Advance Fee"
-                        }
-                    });
-
-                    paidCycles.push({ month: futureMonth, year: futureYear });
-                    moneyLeft -= paymentForCycle;
-
-                    if (futureMonth === 12) { futureMonth = 1; futureYear++; } else { futureMonth++; }
-                }
-            }
-            
-            await prisma.activity.create({
-                data: {
-                    studentId,
-                    type: "PAYMENT",
-                    title: "Bulk Payment Collected",
-                    description: `Collected ₹${totalAmount} covering ${paidCycles.length} month(s)`,
-                    amount: parseFloat(totalAmount),
-                    status: "Completed",
-                },
-            });
-
-        }, { timeout: 30000 });
-
-        res.json({ 
-            success: true, 
-            message: "Payment collected successfully",
-            data: { paidCycles } 
-        });
-
-    } catch (error) {
-        console.error("Advance Fee Error:", error);
-        res.status(500).json({ success: false, message: "Failed to collect fee" });
-    }
-};
-
 
 // ====================== STAFF MANAGEMENT ======================
 
@@ -2241,62 +2883,134 @@ export const addExpense = async (req, res) => {
       description,
       paymentMethod,
       hostelId,
+      proofImageKey, // 🆕 S3 key sent by frontend after upload
     } = req.body;
 
     let ownerId = req.user.id;
-    let status = "APPROVED"; // Default: Owner adds -> Approved immediately
+    let status = "APPROVED"; // Default: Owner adds → Approved immediately
 
-    // --- FIX: ROBUST WARDEN CHECK ---
-    // We check both uppercase and lowercase to be safe
+    // --- WARDEN DETECTION ---
     if (req.user.role === 'WARDEN' || req.user.role === 'warden') {
-       // 1. Find the staff record to get the Real Owner ID
-       const staff = await prisma.staff.findUnique({ where: { id: req.user.id } });
-       
-       if (!staff) {
-         return res.status(401).json({ success: false, message: "Unauthorized Staff." });
-       }
-       
-       // 2. Swap the ID: Use the Owner's ID, not the Warden's
-       ownerId = staff.ownerId; 
-       
-       // 3. Set Status: Warden requests must be approved
-       status = "PENDING";      
+      const staff = await prisma.staff.findUnique({ where: { id: req.user.id } });
+      
+      if (!staff) {
+        return res.status(401).json({ 
+          success: false, 
+          message: "Unauthorized Staff." 
+        });
+      }
+      
+      ownerId = staff.ownerId; // Use Owner's ID
+      status = "PENDING";      // Warden expenses need approval
     }
 
+    // --- VALIDATION ---
     if (!title || !amount || !category || !hostelId) {
-      return res.status(400).json({ success: false, message: "Required fields missing." });
+      return res.status(400).json({ 
+        success: false, 
+        message: "Required fields missing." 
+      });
     }
 
+    // --- VERIFY HOSTEL OWNERSHIP ---
+    const hostel = await prisma.hostel.findFirst({
+      where: { id: hostelId, ownerId }
+    });
+
+    if (!hostel) {
+      return res.status(404).json({
+        success: false,
+        message: "Hostel not found or access denied."
+      });
+    }
+
+    // --- CREATE EXPENSE WITH S3 KEY ---
     const expense = await prisma.expense.create({
       data: {
         title,
         amount: parseFloat(amount),
         category,
         expenseDate: expenseDate ? new Date(expenseDate) : new Date(),
-        description,
+        description: description || null,
         paymentMethod: paymentMethod || "Cash",
-        ownerId, // Now correctly stores the Owner's ID
+        proofImageKey: proofImageKey || null, // 🆕 Store S3 key
+        status,
+        ownerId,
         hostelId,
-        status,  // 'PENDING' for Warden, 'APPROVED' for Owner
       },
+      include: {
+        hostel: {
+          select: { name: true }
+        }
+      }
     });
 
-    const msg = status === "PENDING" ? "Expense request sent to Owner" : "Expense added successfully";
-    res.status(201).json({ success: true, message: msg, data: expense });
+    const message = status === "PENDING" 
+      ? "Expense request sent to Owner for approval" 
+      : "Expense added successfully";
+
+    res.status(201).json({ 
+      success: true, 
+      message, 
+      data: expense 
+    });
 
   } catch (error) {
-    console.error("Add Expense Error", error);
-    res.status(500).json({ success: false, message: "Failed to add expense." });
+    console.error("Add Expense Error:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to add expense." 
+    });
   }
 };
+// export const getExpenses = async (req, res) => {
+//   try {
+//     const ownerId = req.user.id;
+//     const { hostelId, category, startDate, endDate } = req.query;
+//     const where = {
+//       ownerId,
+//       ...(hostelId && { hostelId }),
+//       ...(category && { category }),
+//     };
+
+//     if (startDate || endDate) {
+//       where.expenseDate = {};
+//       if (startDate) where.expenseDate.gte = new Date(startDate);
+//       if (endDate) where.expenseDate.lte = new Date(endDate);
+//     }
+
+//     const expenses = await prisma.expense.findMany({
+//       where,
+//       include: { hostel: { select: { name: true } } },
+//       orderBy: { expenseDate: "desc" },
+//     });
+//     const totalAmount = expenses.reduce((sum, e) => sum + e.amount, 0);
+
+//     res.json({ success: true, data: { expenses, totalAmount } });
+//   } catch (error) {
+//     res
+//       .status(500)
+//       .json({ success: false, message: "Failed to fetch expenses." });
+//   }
+// };
+
 export const getExpenses = async (req, res) => {
   try {
-    const ownerId = req.user.id;
-    const { hostelId, category, startDate, endDate } = req.query;
+    let ownerId = req.user.id;
+    const { hostelId, category, startDate, endDate, status: queryStatus } = req.query;
+
+    // --- WARDEN DETECTION ---
+    if (req.user.role === 'WARDEN' || req.user.role === 'warden') {
+      const staff = await prisma.staff.findUnique({ where: { id: req.user.id } });
+      if (staff) ownerId = staff.ownerId;
+    }
+
+    // --- BUILD QUERY ---
     const where = {
       ownerId,
       ...(hostelId && { hostelId }),
       ...(category && { category }),
+      ...(queryStatus && { status: queryStatus }), // Filter by status if provided
     };
 
     if (startDate || endDate) {
@@ -2305,31 +3019,150 @@ export const getExpenses = async (req, res) => {
       if (endDate) where.expenseDate.lte = new Date(endDate);
     }
 
+    // --- FETCH EXPENSES ---
     const expenses = await prisma.expense.findMany({
       where,
-      include: { hostel: { select: { name: true } } },
+      include: { 
+        hostel: { 
+          select: { id: true, name: true } 
+        } 
+      },
       orderBy: { expenseDate: "desc" },
     });
-    const totalAmount = expenses.reduce((sum, e) => sum + e.amount, 0);
 
-    res.json({ success: true, data: { expenses, totalAmount } });
+    // 🔥 GENERATE TEMPORARY VIEW URLS FOR PROOFS
+    const expensesWithProofUrls = await Promise.all(
+      expenses.map(async (expense) => {
+        let proofUrl = null;
+
+        if (expense.proofImageKey) {
+          try {
+            proofUrl = await generateViewUrl(expense.proofImageKey);
+          } catch (error) {
+            console.error(`Failed to generate URL for ${expense.proofImageKey}:`, error);
+            // Don't fail the request, just log the error
+          }
+        }
+
+        return {
+          ...expense,
+          proofUrl, // 🆕 Frontend uses this temporary URL
+        };
+      })
+    );
+
+    // --- CALCULATE TOTALS ---
+    const totalAmount = expensesWithProofUrls
+      .filter(e => e.status !== 'REJECTED') // Don't count rejected expenses
+      .reduce((sum, e) => sum + e.amount, 0);
+
+    res.json({ 
+      success: true, 
+      data: { 
+        expenses: expensesWithProofUrls, 
+        totalAmount 
+      } 
+    });
+
   } catch (error) {
-    res
-      .status(500)
-      .json({ success: false, message: "Failed to fetch expenses." });
+    console.error("Get Expenses Error:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to fetch expenses." 
+    });
   }
 };
+
+// export const updateExpense = async (req, res) => {
+//   try {
+//     const { expenseId } = req.params;
+//     const updated = await prisma.expense.update({
+//       where: { id: expenseId },
+//       data: req.body,
+//     });
+//     res.json({ success: true, data: updated });
+//   } catch (e) {
+//     res.status(500).json({ success: false });
+//   }
+// };
 
 export const updateExpense = async (req, res) => {
   try {
     const { expenseId } = req.params;
-    const updated = await prisma.expense.update({
-      where: { id: expenseId },
-      data: req.body,
+    const { 
+      title, 
+      amount, 
+      category, 
+      description, 
+      paymentMethod,
+      proofImageKey // 🆕 New proof key if image was changed
+    } = req.body;
+
+    let ownerId = req.user.id;
+
+    // --- WARDEN DETECTION ---
+    if (req.user.role === 'WARDEN' || req.user.role === 'warden') {
+      const staff = await prisma.staff.findUnique({ where: { id: req.user.id } });
+      if (staff) ownerId = staff.ownerId;
+    }
+
+    // --- VERIFY OWNERSHIP ---
+    const existingExpense = await prisma.expense.findFirst({
+      where: { id: expenseId, ownerId }
     });
-    res.json({ success: true, data: updated });
-  } catch (e) {
-    res.status(500).json({ success: false });
+
+    if (!existingExpense) {
+      return res.status(404).json({
+        success: false,
+        message: "Expense not found or access denied."
+      });
+    }
+
+    // --- PREVENT EDITING REJECTED EXPENSES ---
+    if (existingExpense.status === 'REJECTED') {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot edit rejected expenses."
+      });
+    }
+
+    // --- BUILD UPDATE DATA ---
+    const updateData = {
+      ...(title && { title }),
+      ...(amount && { amount: parseFloat(amount) }),
+      ...(category && { category }),
+      ...(description !== undefined && { description }), // Allow clearing description
+      ...(paymentMethod && { paymentMethod }),
+    };
+
+    // 🔥 UPDATE PROOF KEY IF PROVIDED
+    if (proofImageKey !== undefined) {
+      updateData.proofImageKey = proofImageKey; // Can be null to remove proof
+    }
+
+    // --- UPDATE EXPENSE ---
+    const updatedExpense = await prisma.expense.update({
+      where: { id: expenseId },
+      data: updateData,
+      include: {
+        hostel: {
+          select: { name: true }
+        }
+      }
+    });
+
+    res.json({ 
+      success: true, 
+      message: "Expense updated successfully",
+      data: updatedExpense 
+    });
+
+  } catch (error) {
+    console.error("Update Expense Error:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to update expense." 
+    });
   }
 };
 
@@ -3210,86 +4043,216 @@ export const addWarden = async (req, res) => {
 // src/controllers/ownerController.js
 
 // --- NEW: Approve or Reject Expense ---
+// export const updateExpenseStatus = async (req, res) => {
+//   try {
+//     const { expenseId } = req.params;
+//     const { status } = req.body; // "APPROVED" or "REJECTED"
+    
+//     // Security: Only Owner can do this
+//     if (req.user.role === 'WARDEN' || req.user.role === 'warden') {
+//         return res.status(403).json({ success: false, message: "Wardens cannot approve expenses." });
+//     }
+
+//     const updated = await prisma.expense.update({
+//       where: { id: expenseId },
+//       data: { status },
+//     });
+
+//     res.json({ success: true, message: `Expense ${status}`, data: updated });
+//   } catch (e) {
+//     console.error(e);
+//     res.status(500).json({ success: false, message: "Update failed" });
+//   }
+// };
+
 export const updateExpenseStatus = async (req, res) => {
   try {
     const { expenseId } = req.params;
-    const { status } = req.body; // "APPROVED" or "REJECTED"
-    
-    // Security: Only Owner can do this
+    const { status } = req.body;
+
+    // --- SECURITY: ONLY OWNER CAN APPROVE/REJECT ---
     if (req.user.role === 'WARDEN' || req.user.role === 'warden') {
-        return res.status(403).json({ success: false, message: "Wardens cannot approve expenses." });
+      return res.status(403).json({ 
+        success: false, 
+        message: "Only owners can approve or reject expenses." 
+      });
     }
 
+    // --- VALIDATE STATUS ---
+    const validStatuses = ['PENDING', 'APPROVED', 'REJECTED'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status. Must be PENDING, APPROVED, or REJECTED."
+      });
+    }
+
+    const ownerId = req.user.id;
+
+    // --- VERIFY OWNERSHIP ---
+    const expense = await prisma.expense.findFirst({
+      where: { id: expenseId, ownerId }
+    });
+
+    if (!expense) {
+      return res.status(404).json({
+        success: false,
+        message: "Expense not found or access denied."
+      });
+    }
+
+    // --- UPDATE STATUS ---
     const updated = await prisma.expense.update({
       where: { id: expenseId },
       data: { status },
+      include: {
+        hostel: {
+          select: { name: true }
+        }
+      }
     });
 
-    res.json({ success: true, message: `Expense ${status}`, data: updated });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ success: false, message: "Update failed" });
+    const message = status === 'APPROVED' 
+      ? "Expense approved successfully" 
+      : status === 'REJECTED'
+        ? "Expense rejected"
+        : "Expense status updated";
+
+    res.json({ 
+      success: true, 
+      message, 
+      data: updated 
+    });
+
+  } catch (error) {
+    console.error("Update Status Error:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to update status." 
+    });
   }
 };
 
-
+// src/controllers/ownerController.js
 
 export const updateStudentFeeRecord = async (req, res) => {
   try {
-    const { studentId, billingMonth, billingYear, newPaidAmount, paymentMethod, notes } = req.body;
+    const { 
+      studentId, 
+      billingMonth, 
+      billingYear, 
+      newPaidAmount, 
+      paymentMethod, 
+      notes, 
+      proofImageKeys 
+    } = req.body;
     
-    // 1. Find the Record
-    const record = await prisma.feeRecord.findUnique({
+    const bMonth = parseInt(billingMonth);
+    const bYear = parseInt(billingYear);
+
+    // 1. Try to find the record
+    let record = await prisma.feeRecord.findUnique({
       where: {
         studentId_billingMonth_billingYear: {
           studentId,
-          billingMonth: parseInt(billingMonth),
-          billingYear: parseInt(billingYear),
+          billingMonth: bMonth,
+          billingYear: bYear,
         },
       },
     });
 
-    if (!record) return res.status(404).json({ message: "Fee record not found" });
+    // 2. ✅ FIX: If Record Not Found (Prorated/Pending), Create it first!
+    if (!record) {
+        const student = await prisma.student.findUnique({ where: { id: studentId } });
+        if (!student) return res.status(404).json({ message: "Student not found" });
 
-    // 2. Calculate Logic
-    const oldPaidAmount = record.paidAmount;
+        // --- Calculate what the total SHOULD be ---
+        const calculateProratedFee = (year, month, monthlyFee, joinDate) => {
+            const isJoiningMonth = 
+              joinDate.getMonth() === (month - 1) && 
+              joinDate.getFullYear() === year;
+          
+            if (!isJoiningMonth) return monthlyFee;
+            if (joinDate.getDate() === 1) return monthlyFee;
+          
+            const daysInMonth = new Date(year, month, 0).getDate();
+            const joiningDay = joinDate.getDate();
+            const daysToStay = daysInMonth - joiningDay + 1;
+            const dailyRate = monthlyFee / daysInMonth;
+          
+            return Math.round(dailyRate * daysToStay);
+        };
+
+        const totalAmount = calculateProratedFee(
+            bYear, 
+            bMonth, 
+            student.monthlyFee, 
+            new Date(student.admissionDate)
+        );
+
+        // Create the missing record
+        record = await prisma.feeRecord.create({
+            data: {
+                studentId,
+                billingMonth: bMonth,
+                billingYear: bYear,
+                totalAmount: totalAmount, // Lock it
+                paidAmount: 0,
+                remainingAmount: totalAmount,
+                status: "PENDING",
+                dueDate: new Date(),
+                notes: "Initialized via Edit"
+            }
+        });
+    }
+
+    // 3. Continue with Update Logic
+    const oldPaidAmount = record.paidAmount || 0;
     const difference = parseFloat(newPaidAmount) - oldPaidAmount;
     const newRemaining = record.totalAmount - parseFloat(newPaidAmount);
     
-    // Determine New Status
     let newStatus = "PARTIAL";
-    if (newRemaining <= 10) newStatus = "PAID"; // Tolerance of 10rs
-    if (parseFloat(newPaidAmount) === 0) newStatus = "PENDING"; // If reset to 0
+    if (newRemaining <= 10) newStatus = "PAID"; 
+    if (parseFloat(newPaidAmount) === 0) newStatus = "PENDING"; 
 
     const result = await prisma.$transaction(async (prisma) => {
-      
-      // A. Update the Ledger (The Card View)
+      // A. Update Fee Record
+      const updateData = {
+        paidAmount: parseFloat(newPaidAmount),
+        remainingAmount: newRemaining > 0 ? newRemaining : 0,
+        status: newStatus,
+        paymentMethod: paymentMethod || record.paymentMethod,
+        notes: notes || record.notes,
+        lastPaymentDate: new Date()
+      };
+
+      if (proofImageKeys !== undefined) {
+        if (Array.isArray(proofImageKeys) && proofImageKeys.length > 0) {
+          updateData.proofImageKeys = { push: proofImageKeys };
+        } else if (proofImageKeys === null) {
+          updateData.proofImageKeys = [];
+        }
+      }
+
       const updatedRecord = await prisma.feeRecord.update({
         where: { id: record.id },
-        data: {
-          paidAmount: parseFloat(newPaidAmount),
-          remainingAmount: newRemaining > 0 ? newRemaining : 0,
-          status: newStatus,
-          paymentMethod: paymentMethod || record.paymentMethod, // Update method if provided
-          notes: notes || record.notes,
-          lastPaymentDate: new Date() // Mark as updated now
-        },
+        data: updateData,
       });
 
-      // B. Create Correction Payment (ONLY if amount changed)
-      // This keeps your daily/monthly income reports mathematically correct.
+      // B. Record Adjustment Transaction
       if (Math.abs(difference) > 0) {
         await prisma.feePayment.create({
           data: {
-            amount: difference, // Can be positive or negative
+            amount: difference, 
             paymentDate: new Date(),
-            paymentMonth: parseInt(billingMonth),
-            paymentYear: parseInt(billingYear),
+            paymentMonth: bMonth,
+            paymentYear: bYear,
             paymentMethod: paymentMethod || "Adjustment",
-            notes: `Correction: Fee updated from ${oldPaidAmount} to ${newPaidAmount}`,
+            notes: `Correction: ${oldPaidAmount} -> ${newPaidAmount}`,
             status: "Completed",
+            proofImageKeys: proofImageKeys || [],
             studentId,
-            ownerId: req.user.id, // Ensure ownerId is passed from auth middleware
+            ownerId: req.user.id,
             hostelId: record.hostelId || (await prisma.student.findUnique({where:{id:studentId}, select:{hostelId:true}})).hostelId,
           },
         });
